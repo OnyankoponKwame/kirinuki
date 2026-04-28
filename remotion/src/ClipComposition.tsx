@@ -29,7 +29,7 @@ export const clipSchema = z.object({
   startSec: z.number().min(0).describe("クリップ開始秒"),
   endSec: z.number().min(0).describe("クリップ終了秒"),
   vertical: z.boolean().describe("縦動画 9:16"),
-  cropX: z.number().min(0).max(100).describe("横クロップ位置 % (0=左端 50=中央 100=右端) ※縦動画のみ有効"),
+  cropX: z.number().min(0).max(100).describe("顔の位置 % (0=左端 50=中央 100=右端) ※縦動画の顔 cam に使用"),
   title: z.string().describe("クリップタイトル（縦動画上部に常時表示）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
 });
@@ -46,7 +46,7 @@ export const defaultClipProps: ClipProps = {
   captions: [],
 };
 
-// ── Metadata — drives output resolution ───────────────────────────────────────
+// ── Metadata ──────────────────────────────────────────────────────────────────
 
 export const calculateMetadata: CalculateMetadataFunction<ClipProps> = ({
   props,
@@ -63,18 +63,66 @@ export const calculateMetadata: CalculateMetadataFunction<ClipProps> = ({
   };
 };
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Shared constants ──────────────────────────────────────────────────────────
 
 const COMBINE_TOKENS_MS = 0;
+const SAFE_AREA_TOP = 40;
+const VERTICAL_PADDING = 12;
+const FACE_CAM_SIZE = 560;
+const FACE_CAM_BORDER = 8;
+const GOOGLE_FONT = `@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700;900&display=swap');`;
 
 type StudioSegment = { start?: number; end?: number; text?: string };
 
-const TITLE_OUTLINE = [
-  "-1px -1px 0 rgba(0,0,0,0.75)",
-  " 1px -1px 0 rgba(0,0,0,0.75)",
-  "-1px  1px 0 rgba(0,0,0,0.75)",
-  " 1px  1px 0 rgba(0,0,0,0.75)",
-].join(",");
+// ── Title bar height calculation ──────────────────────────────────────────────
+
+function calcTitleBar(title: string, containerWidth: number) {
+  if (!title) return { titleBarHeight: 0, titleFontSize: 0 };
+
+  const lines = title.split("\n");
+  const longestLineLength = lines.reduce((max, l) => Math.max(max, l.length), 0);
+  const fontSizeBasedOnWidth =
+    longestLineLength > 0 ? (containerWidth * 0.93) / longestLineLength : 110;
+  const fontSizeBasedOnTotal = 2000 / title.length;
+  const titleFontSize = Math.min(
+    110,
+    Math.floor(fontSizeBasedOnWidth),
+    Math.floor(fontSizeBasedOnTotal),
+  );
+
+  const autoWrapLines = Math.ceil((title.length * titleFontSize) / (containerWidth * 0.93));
+  const estimatedLines = Math.max(lines.length, autoWrapLines);
+  const titleBarHeight = Math.round(
+    titleFontSize * 1.3 * estimatedLines + VERTICAL_PADDING * 2 + SAFE_AREA_TOP,
+  );
+
+  return { titleBarHeight, titleFontSize };
+}
+
+// ── Caption page renderer (shared timing logic) ───────────────────────────────
+
+function renderCaptionPages(
+  pages: ReturnType<typeof createTikTokStyleCaptions>["pages"],
+  fps: number,
+  paddingBottomOverride?: number,
+) {
+  return pages.map((page, i) => {
+    const startFrame = Math.round((page.startMs / 1000) * fps);
+    const lastToken = page.tokens[page.tokens.length - 1];
+    const endFrame = lastToken
+      ? Math.round((lastToken.toMs / 1000) * fps)
+      : startFrame + fps;
+    const durationInFrames = endFrame - startFrame;
+    if (durationInFrames <= 0) return null;
+    return (
+      <Sequence key={i} from={startFrame} durationInFrames={durationInFrames}>
+        <CaptionPage page={page} paddingBottomOverride={paddingBottomOverride} />
+      </Sequence>
+    );
+  });
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export const ClipComposition: React.FC<ClipProps> = ({
   videoSrc,
@@ -107,44 +155,29 @@ export const ClipComposition: React.FC<ClipProps> = ({
     [effectiveCaptions],
   );
 
-  const clipDurationFrames = Math.round((endSec - startSec) * fps);
+  const trimBefore = startSec * fps;
 
-  const lines = title ? title.split("\n") : [];
-  const manualLines = lines.length;
-  const longestLineLength = lines.reduce((max, l) => Math.max(max, l.length), 0);
-  
-  // 1行あたり約1000pxの幅に収まるよう計算（longestLineLength基準）
-  const fontSizeBasedOnWidth = longestLineLength > 0 ? 1000 / longestLineLength : 110;
-  // 全体で2行分（2000px）に収まるよう計算（改行なしの場合の縮小用）
-  const fontSizeBasedOnTotal = title ? 2000 / title.length : 110;
+  // ── 縦動画レイアウト ────────────────────────────────────────────────────────
+  if (isVertical) {
+    const { titleBarHeight, titleFontSize } = calcTitleBar(title, width);
 
-  // 両方の制約を満たす最小のサイズを採用（最大110px）
-  const titleFontSize = Math.min(110, Math.floor(fontSizeBasedOnWidth), Math.floor(fontSizeBasedOnTotal));
+    // 横動画 (16:9) をそのまま全幅表示した高さ
+    const mainVideoH = Math.round(width * (9 / 16));
 
-  // タイトルバーの実際の高さを推定し、隙間ができないように動画を下げる
-  const SAFE_AREA_TOP = 40; // 上部の余白を狭める
-  const VERTICAL_PADDING = 12; // 上下のパディングを狭める
-  
-  // 推定される最終的な行数（手動改行数 vs 自動折り返し想定数）
-  const autoWrapLines = title ? Math.ceil((title.length * titleFontSize) / 1000) : 0;
-  const estimatedLines = Math.max(manualLines, autoWrapLines);
-  
-  const titleBarHeight = title ? Math.round(titleFontSize * 1.3 * estimatedLines + (VERTICAL_PADDING * 2)) : 0;
-  
-  // 動画のオフセット（セーフエリア＋タイトルバー高さ）
-  // タイトルバー全体（背景色部分）の高さは SAFE_AREA_TOP + titleBarHeight
-  const topOffset = isVertical && title ? SAFE_AREA_TOP + titleBarHeight - 10 : 0;
-  const videoHeight = height - topOffset;
+    // 顔 cam をボトムエリアの中央に配置
+    const bottomTop = titleBarHeight + mainVideoH;
+    const bottomH = height - bottomTop;
+    const faceTop = Math.round(bottomTop + (bottomH - FACE_CAM_SIZE) / 2);
+    const faceLeft = Math.round((width - FACE_CAM_SIZE) / 2);
 
-  // For vertical: scale the 16:9 source so its height fills the videoHeight,
-  // then shift horizontally to crop the desired column.
-  const scaledVideoWidth = Math.round(videoHeight * (16 / 9));
-  const leftOffset = -Math.round((scaledVideoWidth - width) * (cropX / 100));
+    // 字幕: メイン動画の下端に合わせる
+    const captionPaddingBottom = bottomH + 32;
 
-  return (
-    <AbsoluteFill style={{ backgroundColor: "#111" }}>
-      {/* 縦動画で隙間ができる場合、背景にぼかした動画を敷いてリッチにする */}
-      {isVertical && (
+    return (
+      <AbsoluteFill style={{ backgroundColor: "#111" }}>
+        <style>{GOOGLE_FONT}</style>
+
+        {/* ── 背景: ぼかした動画 ── */}
         <AbsoluteFill>
           <Video
             src={staticFile(videoSrc)}
@@ -152,66 +185,57 @@ export const ClipComposition: React.FC<ClipProps> = ({
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              filter: "blur(40px)",
-              opacity: 0.5,
-              transform: "scale(1.1)", // 端のぼかし漏れを防ぐ
+              filter: "blur(50px)",
+              opacity: 0.45,
+              transform: "scale(1.12)",
             }}
-            trimBefore={startSec * fps}
+            trimBefore={trimBefore}
           />
         </AbsoluteFill>
-      )}
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          overflow: isVertical ? "hidden" : "visible",
-          position: "relative",
-        }}
-      >
-        <Video
-          src={staticFile(videoSrc)}
-          style={
-            isVertical
-              ? {
-                position: "absolute",
-                width: scaledVideoWidth,
-                height: videoHeight,
-                top: topOffset,
-                left: leftOffset,
-                boxShadow: "0 -4px 30px rgba(0,0,0,0.5)", // 動画の上に影をつけて立体感を出す
-              }
-              : { width: "100%", height: "100%", objectFit: "contain" }
-          }
-          trimBefore={startSec * fps}
-        />
-      </div>
-      <style>
-        {`
-          @import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700;900&display=swap');
-        `}
-      </style>
-      {isVertical && title && (
-        <>
-          <Audio src={popSound} />
+
+        {/* ── メイン動画 (16:9 全幅) ── */}
+        <div
+          style={{
+            position: "absolute",
+            top: titleBarHeight,
+            left: 0,
+            width,
+            height: mainVideoH,
+            overflow: "hidden",
+            boxShadow: "0 6px 40px rgba(0,0,0,0.6)",
+          }}
+        >
+          <Video
+            src={staticFile(videoSrc)}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            trimBefore={trimBefore}
+          />
+        </div>
+
+        {/* ── タイトルバー ── */}
+        {title && (
           <AbsoluteFill
             style={{
-              justifyContent: "flex-start", // 上寄せ
+              justifyContent: "flex-start",
               alignItems: "center",
               pointerEvents: "none",
             }}
           >
+            <Audio src={popSound} />
             <div
               style={{
                 width: "100%",
-                background: "linear-gradient(to right, #FF1493 0%, #B200FF 100%)",
+                background:
+                  "linear-gradient(to right, #FF1493 0%, #B200FF 100%)",
                 padding: `${SAFE_AREA_TOP + VERTICAL_PADDING}px 20px ${VERTICAL_PADDING}px`,
                 textAlign: "center",
-                boxShadow: "0 15px 30px rgba(178, 0, 255, 0.5)",
+                boxShadow: "0 15px 30px rgba(178,0,255,0.5)",
               }}
             >
               <div
                 style={{
-                  fontFamily: '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
+                  fontFamily:
+                    '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
                   fontSize: titleFontSize,
                   fontWeight: 900,
                   color: "#FFFFFF",
@@ -219,8 +243,6 @@ export const ClipComposition: React.FC<ClipProps> = ({
                   textShadow: "8px 8px 0px #4A0E4E",
                   lineHeight: 1.2,
                   whiteSpace: "pre-wrap",
-                  display: "block",
-                  width: "100%",
                 }}
               >
                 {title.split("\n").map((line, i) => (
@@ -229,28 +251,58 @@ export const ClipComposition: React.FC<ClipProps> = ({
               </div>
             </div>
           </AbsoluteFill>
-        </>
-      )}
-      <AbsoluteFill>
-        {pages.map((page, i) => {
-          const startFrame = Math.round((page.startMs / 1000) * fps);
-          const lastToken = page.tokens[page.tokens.length - 1];
-          
-          // 前の字幕が残り続けないよう、次の字幕の開始時刻ではなく、この字幕の「発話終了時刻」を終了フレームにする
-          // 少しだけ余韻を残したい場合は + 10 フレーム程度しても良いが、一旦ピッタリ消えるようにする
-          const endFrame = lastToken 
-            ? Math.round((lastToken.toMs / 1000) * fps)
-            : startFrame + fps; // フォールバック
-            
-          const durationInFrames = endFrame - startFrame;
-          if (durationInFrames <= 0) return null;
+        )}
 
-          return (
-            <Sequence key={i} from={startFrame} durationInFrames={durationInFrames}>
-              <CaptionPage page={page} />
-            </Sequence>
-          );
-        })}
+        {/* ── 顔 cam (クリップ円形) ── */}
+        <div
+          style={{
+            position: "absolute",
+            top: faceTop,
+            left: faceLeft,
+            width: FACE_CAM_SIZE,
+            height: FACE_CAM_SIZE,
+            borderRadius: "50%",
+            overflow: "hidden",
+            // グラデーションボーダー (疑似的に外側のdivで実現)
+            boxShadow: [
+              `0 0 0 ${FACE_CAM_BORDER}px rgba(255,255,255,0.85)`,
+              "0 0 0 12px rgba(255,20,147,0.35)",
+              "0 12px 48px rgba(0,0,0,0.65)",
+            ].join(", "),
+          }}
+        >
+          <Video
+            src={staticFile(videoSrc)}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              // cropX% の位置を顔 cam の中央に映す
+              objectPosition: `${cropX}% center`,
+            }}
+            trimBefore={trimBefore}
+          />
+        </div>
+
+        {/* ── 字幕 (メイン動画下部にオーバーレイ) ── */}
+        <AbsoluteFill>
+          {renderCaptionPages(pages, fps, captionPaddingBottom)}
+        </AbsoluteFill>
+      </AbsoluteFill>
+    );
+  }
+
+  // ── 横動画レイアウト (変更なし) ──────────────────────────────────────────────
+  return (
+    <AbsoluteFill style={{ backgroundColor: "#111" }}>
+      <style>{GOOGLE_FONT}</style>
+      <Video
+        src={staticFile(videoSrc)}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        trimBefore={trimBefore}
+      />
+      <AbsoluteFill>
+        {renderCaptionPages(pages, fps)}
       </AbsoluteFill>
     </AbsoluteFill>
   );

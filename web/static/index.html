@@ -976,7 +976,7 @@ function buildClipCard(clip, idx) {
     </div>
     <div class="clip-crop-row" style="display:${clip.vertical ? 'block' : 'none'};margin-top:6px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-        <span>← 左</span><span>フォーカス位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
+        <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
       </div>
       <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
     </div>

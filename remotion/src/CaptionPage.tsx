@@ -29,7 +29,10 @@ const ACTIVE_SHADOW = [
   "0 0 15px rgba(254, 39, 200, 0.5)", // 柔らかなピンクの光
 ].join(",");
 
-export const CaptionPage: React.FC<{ page: TikTokPage }> = ({ page }) => {
+export const CaptionPage: React.FC<{
+  page: TikTokPage;
+  paddingBottomOverride?: number;
+}> = ({ page, paddingBottomOverride }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const isVertical = height > width;
@@ -38,7 +41,7 @@ export const CaptionPage: React.FC<{ page: TikTokPage }> = ({ page }) => {
   const absoluteTimeMs = page.startMs + currentTimeMs;
 
   const fontSize = isVertical ? 86 : 64;
-  const paddingBottom = isVertical ? 160 : 64;
+  const paddingBottom = paddingBottomOverride ?? (isVertical ? 160 : 64);
 
   return (
     <AbsoluteFill
