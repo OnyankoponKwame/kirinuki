@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kirinuki</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #111;
+  --surface: #1c1c1e;
+  --surface2: #2c2c2e;
+  --border: #3a3a3c;
+  --text: #f5f5f7;
+  --muted: #8e8e93;
+  --accent: #ffd60a;
+  --accent-dim: rgba(255,214,10,.15);
+  --green: #30d158;
+  --red: #ff453a;
+  --blue: #0a84ff;
+  --r: 12px;
+}
+
+body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size: 15px; }
+
+/* ── Layout ── */
+header { padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 20px; font-weight: 700; }
+header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+
+main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Phase panel ── */
+.phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; transition: border-color .2s; }
+.phase.running { border-color: var(--accent); }
+.phase.done    { border-color: var(--green); }
+.phase.error   { border-color: var(--red); }
+
+.phase-hd {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px; cursor: pointer; user-select: none;
+}
+.phase-hd:hover { background: rgba(255,255,255,.03); }
+
+.phase-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--surface2); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--muted); flex-shrink: 0;
+  transition: all .2s;
+}
+.phase.running .phase-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.phase.done    .phase-num { border-color: var(--green); background: var(--green); color: #000; }
+.phase.error   .phase-num { border-color: var(--red); background: var(--red); color: #fff; }
+
+.phase-title { font-weight: 600; font-size: 15px; flex: 1; }
+
+.phase-badge {
+  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+  background: var(--surface2); color: var(--muted);
+}
+.phase.running .phase-badge { background: var(--accent-dim); color: var(--accent); }
+.phase.done    .phase-badge { background: rgba(48,209,88,.15); color: var(--green); }
+.phase.error   .phase-badge { background: rgba(255,69,58,.15); color: var(--red); }
+
+.chevron { color: var(--muted); font-size: 14px; transition: transform .2s; }
+.phase.collapsed .chevron { transform: rotate(-90deg); }
+
+.phase-body { padding: 0 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+.phase.collapsed .phase-body { display: none; }
+
+/* ── Form fields ── */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+input[type=text], input[type=number], select, .file-wrap input {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 13px; padding: 8px 12px; outline: none;
+  width: 100%; transition: border-color .15s;
+}
+input:focus, select:focus { border-color: var(--accent); }
+
+select {
+  appearance: none; cursor: pointer; padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+
+/* file picker */
+.file-wrap { display: flex; gap: 6px; }
+.file-wrap input  { flex: 1; }
+.file-wrap select { flex: 1; }
+.btn-refresh {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 10px;
+  transition: color .15s;
+}
+.btn-refresh:hover { color: var(--text); }
+
+/* ── Buttons ── */
+button { border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; padding: 9px 18px; transition: opacity .15s, transform .1s; }
+button:active { transform: scale(.97); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+
+.btn-primary  { background: var(--accent); color: #000; }
+.btn-secondary{ background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-render   { background: var(--green); color: #000; }
+.btn-studio   { background: var(--blue); color: #fff; }
+.btn-danger   { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 10px; font-size: 11px; }
+
+.phase-actions { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
+
+/* ── Result chip ── */
+.result-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(48,209,88,.1); border: 1px solid rgba(48,209,88,.3);
+  border-radius: 6px; font-size: 12px; color: var(--green); padding: 5px 10px;
+  font-family: monospace;
+}
+
+/* ── Log console ── */
+.log-wrap { display: flex; flex-direction: column; gap: 8px; }
+.log-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.log-console {
+  background: #0a0a0a; border: 1px solid var(--border); border-radius: 8px;
+  font-family: "SF Mono","Fira Code",monospace; font-size: 11.5px;
+  height: 180px; overflow-y: auto; padding: 10px 14px; line-height: 1.65;
+}
+.log-line { color: #c8c8c8; white-space: pre-wrap; word-break: break-all; }
+.log-line.ok  { color: var(--green); }
+.log-line.err { color: var(--red); }
+.log-line.sec { color: var(--accent); }
+
+/* ── Clip cards ── */
+.clips-hd { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.clips-hd h3 { font-size: 14px; font-weight: 600; }
+.clips-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 12px; }
+
+.clip-card {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; gap: 9px;
+  transition: border-color .15s;
+}
+.clip-card.sel { border-color: var(--accent); background: color-mix(in srgb, var(--surface2) 88%, var(--accent) 12%); }
+
+.clip-top { display: flex; gap: 9px; align-items: flex-start; }
+.clip-cb  { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; margin-top: 3px; }
+
+.clip-title-input {
+  background: transparent; border: none; border-bottom: 1px solid transparent;
+  border-radius: 0; color: var(--text); font-size: 13px; font-weight: 600;
+  padding: 0; width: 100%; transition: border-color .15s;
+  font-family: inherit; resize: none; height: 36px; line-height: 1.4;
+}
+.clip-title-input:focus { border-bottom-color: var(--accent); outline: none; }
+
+.clip-times { display: flex; align-items: center; gap: 5px; }
+.clip-times input { width: 68px; font-size: 12px; padding: 4px 7px; text-align: center; }
+.clip-times span { color: var(--muted); font-size: 11px; }
+.dur-tag { background: var(--surface); border-radius: 4px; color: var(--muted); font-size: 11px; padding: 2px 6px; }
+
+.clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clip-foot { display: flex; justify-content: flex-end; }
+
+/* ── Downloads ── */
+.dl-list { display: flex; flex-direction: column; gap: 8px; }
+.dl-item { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.dl-name { font-size: 12px; font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; padding: 5px 12px; text-decoration: none; flex-shrink: 0; }
+
+/* ── Misc ── */
+[hidden] { display: none !important; }
+.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-box { background: rgba(255,69,58,.1); border: 1px solid var(--red); border-radius: 8px; color: var(--red); font-size: 12px; padding: 10px 14px; }
+.sel-info { font-size: 11px; color: var(--muted); }
+
+/* ── Transcribe progress ── */
+.prog-block { display: flex; flex-direction: column; gap: 8px; }
+.prog-row { display: flex; flex-direction: column; gap: 4px; }
+.prog-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.prog-track { background: var(--surface2); border-radius: 4px; height: 6px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s ease; }
+.prog-fill.green { background: var(--green); }
+
+/* ── Drop overlay ── */
+#drop-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; opacity: 0; transition: opacity .15s;
+}
+#drop-overlay.active { opacity: 1; pointer-events: auto; }
+.drop-box {
+  border: 3px dashed var(--accent); border-radius: 20px;
+  padding: 60px 80px; text-align: center; color: var(--accent);
+  font-size: 22px; font-weight: 700;
+  background: rgba(255,214,10,.07);
+}
+.drop-box small { display: block; margin-top: 10px; font-size: 13px; font-weight: 400; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="drop-overlay">
+  <div class="drop-box">
+    動画ファイルをここにドロップ
+    <small>mp4 / flac / mp3 / wav</small>
+  </div>
+</div>
+
+<header>
+  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+    <rect width="26" height="26" rx="7" fill="#ffd60a"/>
+    <polygon points="9,6 21,13 9,20" fill="#000"/>
+  </svg>
+  <div><h1>Kirinuki</h1><div class="sub">YouTube 切り抜き自動生成</div></div>
+</header>
+
+<main>
+
+<!-- ────────────────── PHASE 1: Download ────────────────── -->
+<div class="phase" id="ph1">
+  <div class="phase-hd" onclick="togglePhase('ph1')">
+    <div class="phase-num">1</div>
+    <div class="phase-title">ダウンロード</div>
+    <span class="phase-badge" id="ph1-badge">待機</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="phase-body">
+    <div class="field">
+      <label>YouTube URL</label>
+      <input type="text" id="p1-url" placeholder="https://youtube.com/watch?v=...">
+    </div>
+    <div class="field">
+      <label>言語（文字起こし用）</label>
+      <select id="p1-lang"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="ko">한국어</option></select>
+    </div>
+    <div class="phase-actions">
+      <button class="btn-primary" id="ph1-btn" onclick="runPhase1(false)">▶ ダウンロード</button>
+      <button class="btn-secondary" id="ph1-chat-btn" onclick="runPhase1(true)">💬 チャットのみ DL</button>
+    </div>
+    <div id="ph1-log" class="log-wrap" hidden>
+      <div class="log-label">ログ</div>
+      <div class="log-console" id="ph1-console"></div>
+    </div>
+    <div id="ph1-result" hidden></div>
+    <div id="ph1-error" class="error-box" hidden></div>
+  </div>
+</div>
+
+<!-- ────────────────── PHASE 2: Transcribe ────────────────── -->
+<div class="phase" id="ph2">
+  <div class="phase-hd" onclick="togglePhase('ph2')">
+    <div class="phase-num">2</div>
+    <div class="phase-title">文字起こし</div>
+    <span class="phase-badge" id="ph2-badge">待機</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="phase-body">
+    <div class="field-row">
+      <div class="field">
+        <label>動画 / 音声ファイル</label>
+        <div class="file-wrap">
+          <select id="p2-video"><option value="">-- 選択してください --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p2-video','audio')">↺</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>言語</label>
+        <select id="p2-lang"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="ko">한국어</option></select>
+      </div>
+    </div>
+    <div class="phase-actions">
+      <button class="btn-primary" id="ph2-btn" onclick="runPhase2()">▶ 文字起こし</button>
+    </div>
+    <div id="ph2-progress" hidden class="prog-block">
+      <div class="prog-row">
+        <div class="prog-meta"><span>音声変換</span><span id="ph2-conv-pct">0%</span></div>
+        <div class="prog-track"><div class="prog-fill" id="ph2-conv-fill" style="width:0%"></div></div>
+      </div>
+      <div class="prog-row">
+        <div class="prog-meta"><span>文字起こし</span><span id="ph2-chunk-label">—</span></div>
+        <div class="prog-track"><div class="prog-fill green" id="ph2-chunk-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div id="ph2-log" class="log-wrap" hidden>
+      <div class="log-label">ログ</div>
+      <div class="log-console" id="ph2-console"></div>
+    </div>
+    <div id="ph2-result" hidden></div>
+    <div id="ph2-error" class="error-box" hidden></div>
+  </div>
+</div>
+
+<!-- ────────────────── PHASE 3: Suggest ────────────────── -->
+<div class="phase" id="ph3">
+  <div class="phase-hd" onclick="togglePhase('ph3')">
+    <div class="phase-num">3</div>
+    <div class="phase-title">切り抜き提案</div>
+    <span class="phase-badge" id="ph3-badge">待機</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="phase-body">
+    <div class="field-row">
+      <div class="field">
+        <label>文字起こしファイル</label>
+        <div class="file-wrap">
+          <select id="p3-trans"><option value="">-- 選択してください --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p3-trans','transcription')">↺</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>ライブチャット（省略可）</label>
+        <div class="file-wrap">
+          <select id="p3-chat"><option value="">-- 選択 --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p3-chat','chat')">↺</button>
+        </div>
+      </div>
+    </div>
+    <div class="phase-actions">
+      <button class="btn-primary" id="ph3-btn" onclick="runPhase3()">▶ 提案を生成</button>
+    </div>
+    <div id="ph3-log" class="log-wrap" hidden>
+      <div class="log-label">ログ</div>
+      <div class="log-console" id="ph3-console"></div>
+    </div>
+    <div id="ph3-result" hidden></div>
+    <div id="ph3-error" class="error-box" hidden></div>
+  </div>
+</div>
+
+<!-- ────────────────── PHASE 4: Render ────────────────── -->
+<div class="phase" id="ph4">
+  <div class="phase-hd" onclick="togglePhase('ph4')">
+    <div class="phase-num">4</div>
+    <div class="phase-title">レンダリング</div>
+    <span class="phase-badge" id="ph4-badge">待機</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="phase-body">
+    <div class="field-row three">
+      <div class="field">
+        <label>動画ファイル</label>
+        <div class="file-wrap">
+          <select id="p4-video"><option value="">-- 選択してください --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p4-video','video')">↺</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>文字起こし</label>
+        <div class="file-wrap">
+          <select id="p4-trans"><option value="">-- 選択してください --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p4-trans','transcription')">↺</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>クリップ提案JSON</label>
+        <div class="file-wrap">
+          <select id="p4-clips"><option value="">-- 選択 --</option></select>
+          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p4-clips','clips')">↺</button>
+        </div>
+      </div>
+    </div>
+    <div class="phase-actions">
+      <button class="btn-secondary" id="ph4-load-btn" onclick="loadClipsForRender()">クリップを読み込む</button>
+    </div>
+
+    <!-- clip cards appear here -->
+    <div id="ph4-clips-section" hidden>
+      <div class="clips-hd" style="margin-bottom:12px">
+        <h3 id="ph4-clips-count"></h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="sel-info" id="ph4-sel-info"></span>
+          <button class="btn-studio" id="ph4-studio-btn" onclick="openInStudio()">🎬 Studio で確認</button>
+          <button class="btn-danger" id="ph4-cancel-btn" onclick="cancelPhase4()" hidden>中止</button>
+          <button class="btn-render" id="ph4-render-btn" onclick="runPhase4()">▶ レンダリング</button>
+        </div>
+      </div>
+      <div class="clips-grid" id="ph4-clips-grid"></div>
+    </div>
+
+    <div id="ph4-log" class="log-wrap" hidden>
+      <div class="log-label">ログ</div>
+      <div class="log-console" id="ph4-console"></div>
+    </div>
+    <div id="ph4-result" hidden></div>
+    <div id="ph4-error" class="error-box" hidden></div>
+  </div>
+</div>
+
+</main>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const phaseJob = { 1: null, 2: null, 3: null, 4: null };
+const phaseOut = { video: null, transcription: null, clips: null };
+
+// ── Panel toggle ───────────────────────────────────────────────────────────
+function togglePhase(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// ── Phase state helpers ────────────────────────────────────────────────────
+function setPhaseState(n, state, msg) {
+  const el = document.getElementById('ph' + n);
+  el.classList.remove('running', 'done', 'error');
+  const badge = document.getElementById('ph' + n + '-badge');
+  const labels = { idle: '待機', running: '実行中', done: '完了', error: 'エラー' };
+  badge.textContent = labels[state] || msg || state;
+  if (state === 'running') el.classList.add('running');
+  if (state === 'done')    el.classList.add('done');
+  if (state === 'error')   el.classList.add('error');
+}
+
+function setBtnLoading(id, loading, label) {
+  const btn = document.getElementById(id);
+  btn.disabled = loading;
+  btn.innerHTML = loading ? `<span class="spinner"></span>${label || '処理中...'}` : btn.dataset.label || btn.textContent;
+  if (!loading && label) btn.dataset.label = label;
+}
+
+// ── Log helpers ────────────────────────────────────────────────────────────
+function appendLog(consoleId, text) {
+  const c = document.getElementById(consoleId);
+  if (!c) return;
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  if (text.startsWith('✓')) div.classList.add('ok');
+  else if (text.startsWith('✗')) div.classList.add('err');
+  else if (text.startsWith('▶') || text.startsWith('==')) div.classList.add('sec');
+  div.textContent = text;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+
+// ── Transcription progress parser ──────────────────────────────────────────
+function updateTranscribeProgress(text) {
+  const prog = document.getElementById('ph2-progress');
+
+  // 音声変換: X%
+  const convM = text.match(/音声変換:\s*(\d+)%/);
+  if (convM) {
+    const pct = parseInt(convM[1], 10);
+    prog.hidden = false;
+    document.getElementById('ph2-conv-pct').textContent = pct + '%';
+    document.getElementById('ph2-conv-fill').style.width = pct + '%';
+  }
+
+  // チャンク K/N を送信中 or ✓ チャンク K/N 完了
+  const chunkM = text.match(/チャンク\s+(\d+)\/(\d+)/);
+  if (chunkM) {
+    const cur = parseInt(chunkM[1], 10);
+    const total = parseInt(chunkM[2], 10);
+    prog.hidden = false;
+    // mark conversion as done when first chunk appears
+    if (document.getElementById('ph2-conv-pct').textContent !== '100%') {
+      document.getElementById('ph2-conv-pct').textContent = '100%';
+      document.getElementById('ph2-conv-fill').style.width = '100%';
+    }
+    const pct = Math.round((cur / total) * 100);
+    document.getElementById('ph2-chunk-label').textContent = `${cur} / ${total}チャンク`;
+    document.getElementById('ph2-chunk-fill').style.width = pct + '%';
+  }
+
+  // マージ中
+  if (text.includes('マージ中')) {
+    prog.hidden = false;
+    document.getElementById('ph2-chunk-label').textContent = 'マージ中...';
+  }
+}
+
+function showLog(n) {
+  document.getElementById('ph' + n + '-log').hidden = false;
+}
+
+function showError(n, msg) {
+  const el = document.getElementById('ph' + n + '-error');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function clearPhaseUI(n) {
+  document.getElementById('ph' + n + '-console').innerHTML = '';
+  document.getElementById('ph' + n + '-log').hidden = true;
+  document.getElementById('ph' + n + '-result').hidden = true;
+  document.getElementById('ph' + n + '-error').hidden = true;
+}
+
+// ── File selects ───────────────────────────────────────────────────────────
+async function refreshFiles(selectId, type) {
+  try {
+    const res = await fetch(`/api/files?type=${type}`);
+    const files = await res.json();
+    const sel = document.getElementById(selectId);
+    const cur = sel.value;
+    const empty = type === 'chat' || type === 'clips' ? '-- 選択 --' : '-- 選択してください --';
+    sel.innerHTML = `<option value="">${escHtml(empty)}</option>` +
+      files.map(f => `<option value="${escHtml(f)}"${f === cur ? ' selected' : ''}>${escHtml(f)}</option>`).join('');
+  } catch (e) { /* ignore */ }
+}
+
+async function initAllFileLists() {
+  await Promise.all([
+    refreshFiles('p2-video', 'audio'),
+    refreshFiles('p4-video', 'video'),
+    refreshFiles('p3-trans', 'transcription'),
+    refreshFiles('p4-trans', 'transcription'),
+    refreshFiles('p3-chat', 'chat'),
+    refreshFiles('p4-clips', 'clips'),
+  ]);
+}
+
+// ── Auto-populate downstream phase inputs ─────────────────────────────────
+async function propagate(video, transcription) {
+  if (video) {
+    const name = video.split('/').pop().split('\\').pop();
+    phaseOut.video = name;
+    await refreshFiles('p2-video', 'audio');
+    await refreshFiles('p4-video', 'video');
+    const s2 = document.getElementById('p2-video');
+    const s4v = document.getElementById('p4-video');
+    if (!s2.value) s2.value = name;
+    if (!s4v.value) s4v.value = name;
+  }
+  if (transcription) {
+    const name = transcription.split('/').pop().split('\\').pop();
+    phaseOut.transcription = name;
+    await refreshFiles('p3-trans', 'transcription');
+    await refreshFiles('p4-trans', 'transcription');
+    const s3 = document.getElementById('p3-trans');
+    const s4t = document.getElementById('p4-trans');
+    if (!s3.value) s3.value = name;
+    if (!s4t.value) s4t.value = name;
+  }
+}
+
+// ── SSE helper ─────────────────────────────────────────────────────────────
+function openSSE(jobId, phaseNum, onState, onLog) {
+  const es = new EventSource(`/api/jobs/${jobId}/events`);
+  const consoleId = 'ph' + phaseNum + '-console';
+
+  es.onmessage = async e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'log') {
+      appendLog(consoleId, msg.text);
+      if (onLog) onLog(msg.text);
+    }
+    if (msg.type === 'state') await onState(msg, es);
+  };
+
+  // When the SSE connection drops (server closed cleanly after "ready", or network
+  // error), poll the job state once and drive the same handler so the UI updates.
+  es.onerror = async () => {
+    es.close();
+    try {
+      const resp = await fetch(`/api/jobs/${jobId}`);
+      if (!resp.ok) return;
+      const job = await resp.json();
+      await onState({
+        type: 'state',
+        status: job.status,
+        stage: job.stage,
+        clips: job.clips,
+        rendered: job.rendered,
+        error: job.error,
+        video_path: job.video_path,
+        transcription_path: job.transcription_path,
+      }, { close: () => {} });
+    } catch (_) {}
+  };
+
+  return es;
+}
+
+// ── PHASE 1: Download only ─────────────────────────────────────────────────
+async function runPhase1(chatOnly = false) {
+  const url = document.getElementById('p1-url').value.trim();
+  if (!url) { alert('YouTube URL を入力してください'); return; }
+
+  clearPhaseUI(1);
+  showLog(1);
+  setPhaseState(1, 'running');
+  const btnId = chatOnly ? 'ph1-chat-btn' : 'ph1-btn';
+  const otherBtnId = chatOnly ? 'ph1-btn' : 'ph1-chat-btn';
+  setBtnLoading(btnId, true, chatOnly ? 'チャット取得中...' : 'ダウンロード中...');
+  document.getElementById(otherBtnId).disabled = true;
+
+  const resetBtns = () => {
+    setBtnLoading('ph1-btn', false);
+    document.getElementById('ph1-btn').textContent = '▶ ダウンロード';
+    setBtnLoading('ph1-chat-btn', false);
+    document.getElementById('ph1-chat-btn').textContent = '💬 チャットのみ DL';
+    document.getElementById('ph1-btn').disabled = false;
+    document.getElementById('ph1-chat-btn').disabled = false;
+  };
+
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        language: document.getElementById('p1-lang').value,
+        stop_after: 'download',
+        chat_only: chatOnly,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || res.status);
+    }
+    const { job_id } = await res.json();
+    phaseJob[1] = job_id;
+
+    openSSE(job_id, 1, async (msg, es) => {
+      if (msg.video_path) await propagate(msg.video_path, null);
+
+      if (msg.status === 'ready') {
+        const chips = [];
+        if (msg.video_path) {
+          chips.push(`<span class="result-chip">📁 ${escHtml(msg.video_path.split('/').pop())}</span>`);
+        }
+        if (msg.chat_path) {
+          const chatName = msg.chat_path.split('/').pop();
+          chips.push(`<span class="result-chip">💬 ${escHtml(chatName)}</span>`);
+          // auto-populate phase 3 chat selector
+          await refreshFiles('p3-chat', 'chat');
+          const s3c = document.getElementById('p3-chat');
+          if (!s3c.value) s3c.value = chatName;
+        }
+        if (chips.length) {
+          const chip = document.getElementById('ph1-result');
+          chip.innerHTML = chips.join(' ');
+          chip.hidden = false;
+        }
+        setPhaseState(1, 'done');
+        resetBtns();
+        es.close();
+      }
+      if (msg.status === 'error') {
+        setPhaseState(1, 'error');
+        resetBtns();
+        showError(1, msg.error);
+        es.close();
+      }
+    });
+  } catch (err) {
+    setPhaseState(1, 'error');
+    resetBtns();
+    showError(1, err.message);
+  }
+}
+
+// ── PHASE 2: Transcribe only ───────────────────────────────────────────────
+async function runPhase2() {
+  const videoFile = document.getElementById('p2-video').value;
+  if (!videoFile) { alert('動画 / 音声ファイルを選択してください'); return; }
+
+  clearPhaseUI(2);
+  // reset progress bars
+  document.getElementById('ph2-progress').hidden = true;
+  document.getElementById('ph2-conv-pct').textContent = '0%';
+  document.getElementById('ph2-conv-fill').style.width = '0%';
+  document.getElementById('ph2-chunk-label').textContent = '—';
+  document.getElementById('ph2-chunk-fill').style.width = '0%';
+  showLog(2);
+  setPhaseState(2, 'running');
+  setBtnLoading('ph2-btn', true, '文字起こし中...');
+
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_path: videoFile,
+        language: document.getElementById('p2-lang').value,
+        clips: [],
+      }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { job_id } = await res.json();
+    phaseJob[2] = job_id;
+
+    openSSE(job_id, 2, async (msg, es) => {
+      if (msg.status === 'ready' || msg.status === 'complete') {
+        document.getElementById('ph2-conv-pct').textContent = '100%';
+        document.getElementById('ph2-conv-fill').style.width = '100%';
+        document.getElementById('ph2-chunk-fill').style.width = '100%';
+      }
+      if (msg.transcription_path) {
+        const name = msg.transcription_path.split('/').pop();
+        await refreshFiles('p3-trans', 'transcription');
+        await refreshFiles('p4-trans', 'transcription');
+        const s3 = document.getElementById('p3-trans');
+        const s4 = document.getElementById('p4-trans');
+        if (!s3.value) s3.value = name;
+        if (!s4.value) s4.value = name;
+        const chip = document.getElementById('ph2-result');
+        chip.innerHTML = `<span class="result-chip">📄 ${escHtml(name)}</span>`;
+        chip.hidden = false;
+      }
+      if (msg.status === 'ready') {
+        setPhaseState(2, 'done');
+        setBtnLoading('ph2-btn', false);
+        document.getElementById('ph2-btn').textContent = '▶ 文字起こし';
+        es.close();
+      }
+      if (msg.status === 'error') {
+        setPhaseState(2, 'error');
+        setBtnLoading('ph2-btn', false);
+        document.getElementById('ph2-btn').textContent = '▶ 文字起こし';
+        showError(2, msg.error);
+        es.close();
+      }
+    }, updateTranscribeProgress);
+  } catch (err) {
+    setPhaseState(2, 'error');
+    setBtnLoading('ph2-btn', false);
+    document.getElementById('ph2-btn').textContent = '▶ 文字起こし';
+    showError(2, err.message);
+  }
+}
+
+// ── PHASE 3: Suggest only ─────────────────────────────────────────────────
+async function runPhase3() {
+  const transFile = document.getElementById('p3-trans').value;
+  if (!transFile) { alert('文字起こしファイルを選択してください'); return; }
+
+  clearPhaseUI(3);
+  showLog(3);
+  setPhaseState(3, 'running');
+  setBtnLoading('ph3-btn', true, '提案生成中...');
+
+  const videoForTrans = document.getElementById('p4-video').value
+                     || document.getElementById('p2-video').value
+                     || null;
+
+  try {
+    const body = { transcription_path: transFile };
+    if (videoForTrans) body.video_path = videoForTrans;
+
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { job_id } = await res.json();
+    phaseJob[3] = job_id;
+
+    openSSE(job_id, 3, async (msg, es) => {
+      if (msg.status === 'ready' && msg.clips) {
+        phaseOut.clipsData = msg.clips;
+        const chip = document.getElementById('ph3-result');
+        const clipsFileName = msg.clips_path ? msg.clips_path.split('/').pop() : null;
+        chip.innerHTML = `<span class="result-chip">🎬 ${msg.clips.length} 件のクリップを提案</span>`
+          + (clipsFileName ? ` <span class="result-chip">📄 ${escHtml(clipsFileName)}</span>` : '');
+        chip.hidden = false;
+        if (clipsFileName) {
+          await refreshFiles('p4-clips', 'clips');
+          const s4c = document.getElementById('p4-clips');
+          if (!s4c.value) s4c.value = clipsFileName;
+        }
+        loadClipsIntoGrid(msg.clips);
+        setPhaseState(3, 'done');
+        setBtnLoading('ph3-btn', false);
+        document.getElementById('ph3-btn').textContent = '▶ 提案を生成';
+        es.close();
+      }
+      if (msg.status === 'error') {
+        setPhaseState(3, 'error');
+        setBtnLoading('ph3-btn', false);
+        document.getElementById('ph3-btn').textContent = '▶ 提案を生成';
+        showError(3, msg.error);
+        es.close();
+      }
+    });
+  } catch (err) {
+    setPhaseState(3, 'error');
+    setBtnLoading('ph3-btn', false);
+    document.getElementById('ph3-btn').textContent = '▶ 提案を生成';
+    showError(3, err.message);
+  }
+}
+
+// ── PHASE 4: Load clips → render ──────────────────────────────────────────
+async function loadClipsForRender() {
+  const clipsFile = document.getElementById('p4-clips').value;
+  const videoFile = document.getElementById('p4-video').value;
+  const transFile = document.getElementById('p4-trans').value;
+
+  if (phaseOut.clipsData) {
+    loadClipsIntoGrid(phaseOut.clipsData);
+    return;
+  }
+
+  if (!clipsFile && !videoFile) {
+    alert('動画ファイルまたはクリップJSONを選択してください');
+    return;
+  }
+
+  setBtnLoading('ph4-load-btn', true, '読み込み中...');
+  clearPhaseUI(4);
+
+  try {
+    const body = {};
+    if (videoFile)  body.video_path = videoFile;
+    if (transFile)  body.transcription_path = transFile;
+    if (clipsFile)  body.clips_path = clipsFile;
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { job_id } = await res.json();
+    phaseJob[4] = job_id;
+
+    openSSE(job_id, 4, (msg, es) => {
+      if (msg.status === 'ready' && msg.clips) {
+        loadClipsIntoGrid(msg.clips);
+        setBtnLoading('ph4-load-btn', false);
+        document.getElementById('ph4-load-btn').textContent = 'クリップを読み込む';
+        es.close();
+      }
+      if (msg.status === 'error') {
+        setBtnLoading('ph4-load-btn', false);
+        document.getElementById('ph4-load-btn').textContent = 'クリップを読み込む';
+        showError(4, msg.error);
+        es.close();
+      }
+    });
+  } catch (err) {
+    setBtnLoading('ph4-load-btn', false);
+    document.getElementById('ph4-load-btn').textContent = 'クリップを読み込む';
+    showError(4, err.message);
+  }
+}
+
+async function runPhase4() {
+  const jobId = phaseJob[4];
+  if (!jobId) { alert('先にクリップを読み込んでください'); return; }
+
+  const videoFile = document.getElementById('p4-video').value;
+  const transFile = document.getElementById('p4-trans').value;
+  if (!videoFile) { alert('動画ファイルを選択してください'); return; }
+  if (!transFile) { alert('文字起こしファイルを選択してください'); return; }
+
+  const currentClips = readGridClips();
+  const indices = selectedGridIndices();
+  if (indices.length === 0) { alert('レンダリングするクリップを選択してください'); return; }
+
+  clearPhaseUI(4);
+  showLog(4);
+  setPhaseState(4, 'running');
+  setBtnLoading('ph4-render-btn', true, 'レンダリング中...');
+  document.getElementById('ph4-cancel-btn').hidden = false;
+
+  try {
+    await fetch(`/api/jobs/${jobId}/clips`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clips: currentClips }),
+    });
+
+    const res = await fetch(`/api/jobs/${jobId}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ indices }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+
+    const seenFiles = new Set();
+    openSSE(jobId, 4, (msg, es) => {
+      if (msg.rendered) {
+        msg.rendered.forEach(f => {
+          if (!seenFiles.has(f)) {
+            seenFiles.add(f);
+            addDownloadResult(f);
+          }
+        });
+      }
+      if (msg.status === 'complete' || msg.status === 'canceled') {
+        document.getElementById('ph4-cancel-btn').hidden = true;
+        setBtnLoading('ph4-cancel-btn', false);
+        document.getElementById('ph4-cancel-btn').textContent = '中止';
+
+        if (msg.status === 'canceled') {
+          setPhaseState(4, 'idle', '中止されました');
+        } else {
+          setPhaseState(4, 'done');
+        }
+        setBtnLoading('ph4-render-btn', false);
+        document.getElementById('ph4-render-btn').textContent = '▶ レンダリング';
+        es.close();
+      }
+      if (msg.status === 'error') {
+        document.getElementById('ph4-cancel-btn').hidden = true;
+        setBtnLoading('ph4-cancel-btn', false);
+        document.getElementById('ph4-cancel-btn').textContent = '中止';
+        
+        setPhaseState(4, 'error');
+        setBtnLoading('ph4-render-btn', false);
+        document.getElementById('ph4-render-btn').textContent = '▶ レンダリング';
+        showError(4, msg.error);
+        es.close();
+      }
+    });
+  } catch (err) {
+    document.getElementById('ph4-cancel-btn').hidden = true;
+    setBtnLoading('ph4-cancel-btn', false);
+    document.getElementById('ph4-cancel-btn').textContent = '中止';
+    
+    setPhaseState(4, 'error');
+    setBtnLoading('ph4-render-btn', false);
+    document.getElementById('ph4-render-btn').textContent = '▶ レンダリング';
+    showError(4, err.message);
+  }
+}
+
+async function cancelPhase4() {
+  const jobId = phaseJob[4];
+  if (!jobId) return;
+  setBtnLoading('ph4-cancel-btn', true, '中止中...');
+  try {
+    await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+  } catch (e) {
+    alert('中止リクエストに失敗しました');
+    setBtnLoading('ph4-cancel-btn', false);
+    document.getElementById('ph4-cancel-btn').textContent = '中止';
+  }
+}
+
+// ── Clip grid helpers ──────────────────────────────────────────────────────
+function formatTime(sec) {
+  const s = Math.round(sec);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+function parseSec(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function durStr(s, e) { const d = Math.round(e - s); return d >= 60 ? `${Math.floor(d/60)}分${d%60}秒` : `${d}秒`; }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function loadClipsIntoGrid(clips) {
+  const grid = document.getElementById('ph4-clips-grid');
+  grid.innerHTML = '';
+  clips.forEach((c, i) => grid.appendChild(buildClipCard(c, i)));
+  document.getElementById('ph4-clips-count').textContent = `クリップ一覧 (${clips.length} 件)`;
+  document.getElementById('ph4-clips-section').hidden = false;
+  updateSelInfo();
+}
+
+function buildClipCard(clip, idx) {
+  const card = document.createElement('div');
+  card.className = 'clip-card sel';
+  card.innerHTML = `
+    <div class="clip-top">
+      <input type="checkbox" class="clip-cb" checked>
+      <textarea class="clip-title-input" rows="2">${escHtml(clip.title)}</textarea>
+    </div>
+    <div class="clip-times">
+      <input type="number" class="t-start" value="${clip.start_sec.toFixed(1)}" step="0.5" min="0">
+      <span>→</span>
+      <input type="number" class="t-end" value="${clip.end_sec.toFixed(1)}" step="0.5" min="0">
+      <span class="dur-tag">${durStr(clip.start_sec, clip.end_sec)}</span>
+    </div>
+    <div class="clip-reason">${escHtml(clip.reason || '')}</div>
+    <div class="clip-foot">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)">
+        <input type="checkbox" class="clip-vertical" ${clip.vertical ? 'checked' : ''}> 縦動画 (9:16)
+      </label>
+      <button class="btn-danger">削除</button>
+    </div>
+    <div class="clip-crop-row" style="display:${clip.vertical ? 'block' : 'none'};margin-top:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+        <span>← 左</span><span>フォーカス位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
+      </div>
+      <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
+    </div>
+  `;
+
+  const cb = card.querySelector('.clip-cb');
+  cb.addEventListener('change', () => { card.classList.toggle('sel', cb.checked); updateSelInfo(); });
+
+  const ts = card.querySelector('.t-start');
+  const te = card.querySelector('.t-end');
+  const dur = card.querySelector('.dur-tag');
+  [ts, te].forEach(el => el.addEventListener('input', () => { dur.textContent = durStr(parseSec(ts.value), parseSec(te.value)); }));
+
+  const vertCb = card.querySelector('.clip-vertical');
+  const cropRow = card.querySelector('.clip-crop-row');
+  vertCb.addEventListener('change', () => { cropRow.style.display = vertCb.checked ? 'block' : 'none'; });
+
+  const cropSlider = card.querySelector('.clip-crop-x');
+  const cropVal = card.querySelector('.crop-x-val');
+  cropSlider.addEventListener('input', () => { cropVal.textContent = cropSlider.value; });
+
+  card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
+
+  return card;
+}
+
+function updateSelInfo() {
+  const all = document.querySelectorAll('#ph4-clips-grid .clip-card').length;
+  const sel = document.querySelectorAll('#ph4-clips-grid .clip-cb:checked').length;
+  document.getElementById('ph4-sel-info').textContent = `${sel} / ${all} 選択`;
+}
+
+function readGridClips() {
+  return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => ({
+    title: c.querySelector('.clip-title-input').value,
+    start_sec: parseSec(c.querySelector('.t-start').value),
+    end_sec:   parseSec(c.querySelector('.t-end').value),
+    vertical: c.querySelector('.clip-vertical').checked,
+    cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
+    reason: '',
+  }));
+}
+
+function selectedGridIndices() {
+  return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card'))
+    .reduce((acc, c, i) => { if (c.querySelector('.clip-cb').checked) acc.push(i); return acc; }, []);
+}
+
+function addDownloadResult(filename) {
+  const result = document.getElementById('ph4-result');
+  result.hidden = false;
+  if (!result.querySelector('.dl-list')) {
+    result.innerHTML = '<div class="dl-list"></div>';
+  }
+  const item = document.createElement('div');
+  item.className = 'dl-item';
+  item.innerHTML = `<span class="dl-name">${escHtml(filename)}</span><a class="btn-dl" href="/api/clips/${encodeURIComponent(filename)}" download="${escHtml(filename)}">ダウンロード</a>`;
+  result.querySelector('.dl-list').appendChild(item);
+}
+
+// ── Studio ─────────────────────────────────────────────────────────────────
+async function openInStudio() {
+  const videoFile = document.getElementById('p4-video').value;
+  const transFile = document.getElementById('p4-trans').value;
+  if (!videoFile) { alert('動画ファイルを選択してください'); return; }
+  if (!transFile) { alert('文字起こしファイルを選択してください'); return; }
+
+  const clips = readGridClips();
+  if (clips.length === 0) { alert('クリップがありません'); return; }
+
+  const btn = document.getElementById('ph4-studio-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Studio 起動中...';
+
+  try {
+    const res = await fetch('/api/studio/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_path: videoFile, transcription_path: transFile, clips }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { url } = await res.json();
+    window.open(url, 'remotion-studio');
+  } catch (err) {
+    alert('Studio の起動に失敗しました: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🎬 Studio で確認';
+  }
+}
+
+// ── Drag & drop upload ─────────────────────────────────────────────────────
+const overlay = document.getElementById('drop-overlay');
+const VIDEO_EXTS = new Set(['mp4', 'flac', 'mp3', 'wav', 'mov', 'mkv']);
+
+function isVideoFile(f) {
+  return VIDEO_EXTS.has(f.name.split('.').pop().toLowerCase());
+}
+
+let dragCounter = 0;
+
+document.addEventListener('dragenter', e => {
+  const hasFile = e.dataTransfer && Array.from(e.dataTransfer.items).some(i => i.kind === 'file');
+  if (!hasFile) return;
+  dragCounter++;
+  overlay.classList.add('active');
+  e.preventDefault();
+});
+
+document.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; overlay.classList.remove('active'); }
+});
+
+document.addEventListener('dragover', e => { e.preventDefault(); });
+
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  dragCounter = 0;
+  overlay.classList.remove('active');
+
+  const files = Array.from(e.dataTransfer.files).filter(isVideoFile);
+  if (files.length === 0) return;
+
+  for (const file of files) {
+    await uploadVideoFile(file);
+  }
+});
+
+async function uploadVideoFile(file) {
+  const toast = showUploadToast(file.name);
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { filename } = await res.json();
+
+    await Promise.all([
+      refreshFiles('p2-video', 'audio'),
+      refreshFiles('p4-video', 'video'),
+    ]);
+
+    const s2 = document.getElementById('p2-video');
+    const s4 = document.getElementById('p4-video');
+    if (!s2.value) s2.value = filename;
+    if (!s4.value) s4.value = filename;
+
+    toast.finish(`✓ ${filename}`);
+  } catch (err) {
+    toast.finish(`✗ ${err.message}`, true);
+  }
+}
+
+function showUploadToast(name) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;max-width:320px';
+  el.innerHTML = `<span class="spinner"></span><span>アップロード中: ${escHtml(name)}</span>`;
+  document.body.appendChild(el);
+  return {
+    finish(msg, isErr = false) {
+      el.innerHTML = `<span style="color:${isErr ? 'var(--red)' : 'var(--green)'}">${escHtml(msg)}</span>`;
+      setTimeout(() => el.remove(), 3000);
+    }
+  };
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+initAllFileLists();
+</script>
+</body>
+</html>

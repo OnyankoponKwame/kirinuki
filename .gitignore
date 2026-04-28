@@ -1,0 +1,35 @@
+# ── 環境変数 ──────────────────────────────────────────────────────────────────
+.env
+
+# ── 出力ファイル（大容量 / 生成物） ─────────────────────────────────────────
+downloads/
+transcriptions/
+clips/
+web/transcriptions/
+
+# ── Remotion 生成物 ───────────────────────────────────────────────────────────
+remotion/node_modules/
+remotion/out/
+remotion/public/
+remotion/studio-props.json
+
+# Remotion Studio が実行時に自動生成するファイル
+remotion/src/studioCompositions.tsx
+remotion/src/studioData.json
+remotion/src/transcription.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+
+# ── yt-dlp 一時ファイル ───────────────────────────────────────────────────────
+*.ytdl
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+skills-lock.json
+.agents/
+.claude/

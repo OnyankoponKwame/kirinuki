@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Kirinuki Web",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app:app",
+        "--reload",
+        "--port",
+        "8009"
+      ],
+      "cwd": "${workspaceFolder}/web",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
