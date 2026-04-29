@@ -75,7 +75,7 @@ def preprocess_audio(input_path: Path) -> Path:
     print("  音声変換: 100%")
     return output_path
     
-def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, total_chunks: int, language: str = "ja") -> tuple[dict, float]:
+def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, total_chunks: int, language: str = "ja", initial_prompt: str | None = None) -> tuple[dict, float]:
     """
     Transcribe a single audio chunk with Groq API.
     
@@ -99,12 +99,15 @@ def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, t
             
             start_time = time.time()
             try:
-                result = client.audio.transcriptions.create(
+                create_kwargs = dict(
                     file=("chunk.flac", temp_file, "audio/flac"),
                     model="whisper-large-v3",
                     language=language,
-                    response_format="verbose_json"
+                    response_format="verbose_json",
                 )
+                if initial_prompt:
+                    create_kwargs["prompt"] = initial_prompt
+                result = client.audio.transcriptions.create(**create_kwargs)
                 api_time = time.time() - start_time
                 total_api_time += api_time
                 
@@ -454,7 +457,7 @@ def save_results(result: dict, audio_path: Path) -> Path:
         print(f"Error saving results: {str(e)}")
         raise
 
-def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overlap: int = 10, language: str = "ja") -> dict:
+def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overlap: int = 10, language: str = "ja", initial_prompt: str | None = None) -> dict:
     """
     Transcribe audio in chunks with overlap with Whisper via Groq API.
     
@@ -503,7 +506,7 @@ def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overla
             end = min(start + chunk_ms, duration)
             print(f"▶ チャンク {i+1}/{total_chunks} を送信中... ({start/1000:.0f}秒〜{end/1000:.0f}秒)")
             chunk = audio[start:end]
-            result, chunk_time = transcribe_single_chunk(client, chunk, i+1, total_chunks, language=language)
+            result, chunk_time = transcribe_single_chunk(client, chunk, i+1, total_chunks, language=language, initial_prompt=initial_prompt)
             total_transcription_time += chunk_time
             results.append((result, start))
 

@@ -49,7 +49,13 @@ def _new_job(req: "StartReq") -> str:
         "_chat_only": req.chat_only,
         "_in_video": req.video_path,
         "_in_transcription": req.transcription_path,
+        "_transcription_prompt": req.transcription_prompt,
         "_in_clips": req.clips_path,
+        "_extra_prompt": req.extra_prompt,
+        "_silence_cut": req.silence_cut,
+        "_silence_threshold": req.silence_threshold,
+        "_src_aspect_override": req.src_aspect,
+        "src_aspect": req.src_aspect,  # None until detected; avoids premature dropdown pre-selection
     }
     return jid
 
@@ -112,6 +118,15 @@ def _run_pipeline(job_id: str) -> None:
             chat_path = None
             log("▶ 動画スキップ（文字起こしから開始）")
 
+        # Auto-detect source dimensions unless caller overrode
+        if not job.get("_src_aspect_override") and video_path.exists():
+            try:
+                vw, vh = pl.get_video_dimensions(video_path)
+                job["src_aspect"] = vw / vh if vh else 16 / 9
+                log(f"✓ ソース動画: {vw}×{vh} (aspect {job['src_aspect']:.4f})")
+            except Exception:
+                pass
+
         if job["_stop_after"] == "download":
             job["stage"] = "ready"
             job["status"] = "ready"
@@ -128,7 +143,7 @@ def _run_pipeline(job_id: str) -> None:
             job["stage"] = "transcribing"
             log("▶ Transcribing audio...")
             with pl.with_logging(log):
-                result = pl.run_transcription(video_path, job["_language"])
+                result = pl.run_transcription(video_path, job["_language"], job.get("_transcription_prompt"))
             t_path = pl.save_transcription(result, video_path)
             job["transcription_path"] = str(t_path)
             log(f"✓ Transcription: {t_path.name}")
@@ -145,10 +160,24 @@ def _run_pipeline(job_id: str) -> None:
             job["stage"] = "suggesting"
             log("▶ Asking Claude for clip suggestions...")
             assert result is not None
-            job["clips"] = pl.suggest_clips_from_result(result, chat_path)
+            job["clips"] = pl.suggest_clips_from_result(result, chat_path, job.get("_extra_prompt"))
             clips_file = pl.save_clips(job["clips"], video_path)
             job["clips_path"] = str(clips_file)
             log(f"✓ {len(job['clips'])} 件のクリップを提案 → {clips_file.name}")
+
+        if job.get("_silence_cut") and result is not None:
+            segs = result.get("segments", [])
+            before = len(job["clips"])
+            job["clips"] = pl.cut_silence_from_clips(
+                job["clips"], segs, job.get("_silence_threshold", 2.0)
+            )
+            log(f"✓ 無音カット: {before} 件 → {len(job['clips'])} 件")
+            if job.get("clips_path"):
+                clips_file = pl.save_clips(job["clips"], video_path)
+                job["clips_path"] = str(clips_file)
+
+        # Migrate any old-style split clips (_concat_group) to keepIntervals format
+        job["clips"] = pl.merge_split_clips(job["clips"])
 
         job["stage"] = "ready"
         job["status"] = "ready"
@@ -181,8 +210,13 @@ class StartReq(BaseModel):
     # Skip phases by providing existing files (filenames relative to their dirs)
     video_path: str | None = None          # skip download
     transcription_path: str | None = None  # skip transcription
+    transcription_prompt: str | None = None  # initial prompt for Whisper transcription
     clips_path: str | None = None          # skip suggestion (load from file)
     clips: list[dict] | None = None        # skip suggestion (inline)
+    extra_prompt: str | None = None        # additional instruction for clip suggestion
+    silence_cut: bool = False              # trim/split clips at silent sections
+    silence_threshold: float = 2.0        # minimum silence length in seconds to cut
+    src_aspect: float | None = None       # source video aspect ratio override (e.g. 9/16 for vertical)
 
     @model_validator(mode="after")
     def check_source(self) -> "StartReq":
@@ -229,7 +263,7 @@ async def job_events(jid: str):
             for text in job["logs"][cursor:]:
                 yield f"data: {json.dumps({'type': 'log', 'text': text})}\n\n"
                 cursor += 1
-            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path')})}\n\n"
+            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect')})}\n\n"
             if job["status"] in terminal:
                 break
             await asyncio.sleep(0.5 if job["status"] != "ready" else 1.5)
@@ -277,21 +311,22 @@ async def start_render(jid: str, req: RenderReq):
             indices = req.indices if req.indices is not None else list(range(len(clips)))
             clips_dir = PROJECT_DIR / "clips"
             loop = asyncio.get_running_loop()
+            src_aspect = job.get("src_aspect", 16 / 9)
 
             for idx in indices:
                 if job.get("status") == "canceled":
                     break
                 clip = clips[idx]
                 log(f"▶ Rendering [{idx}] {clip.get('title', '')}")
-                
-                def set_proc(p):
-                    job["_proc"] = p
-                    
-                def check_cancel():
-                    return job.get("status") == "canceled"
-                
+
+                def set_proc(p, _job=job):
+                    _job["_proc"] = p
+
+                def check_cancel(_job=job):
+                    return _job.get("status") == "canceled"
+
                 out = await loop.run_in_executor(
-                    None, pl.render_clip, clip, video_path, segments, idx, log, clips_dir, check_cancel, set_proc
+                    None, pl.render_clip, clip, video_path, segments, idx, log, clips_dir, check_cancel, set_proc, src_aspect
                 )
                 if job.get("status") == "canceled":
                     break
@@ -384,7 +419,6 @@ _studio_video_dir: str | None = None  # public-dir the current Studio was starte
 
 
 def _make_captions_ts(segments: list[dict], start_sec: float, end_sec: float) -> list[dict]:
-    """Python mirror of utils.ts makeCaptions — produces {text, startMs, endMs}."""
     captions = []
     for seg in segments:
         s = seg.get("start", 0)
@@ -396,38 +430,21 @@ def _make_captions_ts(segments: list[dict], start_sec: float, end_sec: float) ->
         text = seg.get("text", "").strip()
         if not text:
             continue
-
-        # 長すぎる文章（18文字以上）は分割
         if len(text) >= 18:
-            # 読点「、」があればそこで分割、なければ真ん中で分割
             split_idx = text.find("、")
             if split_idx == -1 or split_idx < 5 or split_idx > len(text) - 5:
                 split_idx = len(text) // 2
             else:
-                split_idx += 1 # 「、」を含める
-
+                split_idx += 1
             half_time = start_ms + (end_ms - start_ms) * (split_idx / len(text))
-
-            captions.append({
-                "text": " " + text[:split_idx].strip(),
-                "startMs": start_ms,
-                "endMs": half_time
-            })
-            captions.append({
-                "text": " " + text[split_idx:].strip(),
-                "startMs": half_time,
-                "endMs": end_ms
-            })
+            captions.append({"text": " " + text[:split_idx].strip(), "startMs": start_ms, "endMs": half_time})
+            captions.append({"text": " " + text[split_idx:].strip(), "startMs": half_time, "endMs": end_ms})
         else:
-            captions.append({
-                "text": " " + text,
-                "startMs": start_ms,
-                "endMs": end_ms,
-            })
+            captions.append({"text": " " + text, "startMs": start_ms, "endMs": end_ms})
     return captions
 
 
-def _generate_studio_compositions(video_src: str, segments: list[dict], clips: list[dict]) -> str:
+def _generate_studio_compositions(video_src: str, segments: list[dict], clips: list[dict], src_aspect: float = 16 / 9) -> str:
     """Generate studioCompositions.tsx with static named consts so Remotion can save props."""
     lines = [
         "// Auto-generated by Kirinuki web app — do not edit manually",
@@ -443,16 +460,21 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
 
     for i, clip in enumerate(clips):
         captions = _make_captions_ts(segments, clip["start_sec"], clip["end_sec"])
-        props = {
+        props: dict = {
             "videoSrc": video_src,
             "startSec": clip["start_sec"],
             "endSec": clip["end_sec"],
             "vertical": bool(clip.get("vertical", False)),
+            "verticalMode": clip.get("verticalMode", "crop"),
             "cropX": float(clip.get("cropX", 90)),
+            "faceCamZoom": float(clip.get("faceCamZoom", 1.5)),
+            "faceCamY": float(clip.get("faceCamY", 50)),
             "title": clip.get("title", ""),
             "captions": captions,
+            "srcAspect": clip.get("srcAspect", src_aspect),
         }
-        # json.dumps output is valid TypeScript object literal syntax
+        if clip.get("keepIntervals"):
+            props["keepIntervals"] = clip["keepIntervals"]
         lines.append(
             f"const clip{i:02d}Props: ClipProps = {json.dumps(props, ensure_ascii=False, indent=2)};"
         )
@@ -461,7 +483,12 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
     lines.append("export const StudioCompositions: React.FC = () => (")
     lines.append("  <>")
     for i, clip in enumerate(clips):
-        dur = max(1, round((clip["end_sec"] - clip["start_sec"]) * 30))
+        keep_ivs = clip.get("keepIntervals")
+        if keep_ivs:
+            dur_sec = sum(iv["endSec"] - iv["startSec"] for iv in keep_ivs)
+        else:
+            dur_sec = clip["end_sec"] - clip["start_sec"]
+        dur = max(1, round(dur_sec * 30))
         lines += [
             f'    <Composition',
             f'      id="clip-{i:02d}"',
@@ -498,9 +525,19 @@ async def open_studio(req: StudioReq):
 
     segments = transcription.get("segments", [])
 
+    # Migrate any old-style split clips (_concat_group) to keepIntervals before Studio
+    import pipeline as _pl
+    merged_clips = _pl.merge_split_clips(req.clips)
+
+    # Detect source dimensions for correct aspect ratio in compositions
+    vw, vh = _pl.get_video_dimensions(video_path)
+    studio_src_aspect = vw / vh if vh else 16 / 9
+
     # Generate static TypeScript file with named consts — lets Remotion save props
-    tsx = _generate_studio_compositions(video_path.name, segments, req.clips)
-    (REMOTION_DIR / "src" / "studioCompositions.tsx").write_text(tsx, encoding="utf-8")
+    tsx = _generate_studio_compositions(video_path.name, segments, merged_clips, studio_src_aspect)
+    compositions_path = REMOTION_DIR / "src" / "studioCompositions.tsx"
+    if not compositions_path.exists() or compositions_path.read_text(encoding="utf-8") != tsx:
+        compositions_path.write_text(tsx, encoding="utf-8")
 
     # Keep studioData.json updated for ClipComposition's internal fallback
     studio_data = {"videoSrc": video_path.name, "segments": segments, "clips": []}
@@ -532,7 +569,7 @@ async def open_studio(req: StudioReq):
         _studio_video_dir = video_dir
         await asyncio.sleep(4)
 
-    return {"url": "http://localhost:3000"}
+    return {"url": "http://localhost:3009"}
 
 
 # Serve frontend (must be mounted last)

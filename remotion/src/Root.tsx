@@ -10,7 +10,7 @@ import { StudioCompositions } from "./studioCompositions";
 export const RemotionRoot: React.FC = () => {
   return (
     <>
-      {/* Always registered — used by pipeline.py CLI rendering via --props */}
+      {/* CLI rendering 用 */}
       <Composition
         id="ClipComposition"
         component={ClipComposition}

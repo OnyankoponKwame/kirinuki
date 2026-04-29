@@ -61,7 +61,7 @@ def download_video(
     log: Callable[[str], None],
 ) -> tuple[Path, Path | None]:
     output_dir.mkdir(exist_ok=True)
-    template = str(output_dir / "%(id)s.%(ext)s")
+    template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
     proc = subprocess.Popen(
         [
@@ -112,7 +112,7 @@ def download_chat_only(
     log: Callable[[str], None],
 ) -> Path | None:
     output_dir.mkdir(exist_ok=True)
-    template = str(output_dir / "%(id)s.%(ext)s")
+    template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
     proc = subprocess.Popen(
         [
@@ -145,8 +145,8 @@ def download_chat_only(
 
 # ── Transcribe ────────────────────────────────────────────────────────────────
 
-def run_transcription(video_path: Path, language: str) -> dict:
-    return transcribe_audio_in_chunks(video_path, language=language)
+def run_transcription(video_path: Path, language: str, initial_prompt: str | None = None) -> dict:
+    return transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt)
 
 
 def save_transcription(result: dict, video_path: Path) -> Path:
@@ -172,7 +172,7 @@ def save_clips(clips: list[dict], video_path: Path) -> Path:
 # ── Suggest clips ─────────────────────────────────────────────────────────────
 
 def suggest_clips_from_result(
-    result: dict, chat_path: Path | None
+    result: dict, chat_path: Path | None, extra_prompt: str | None = None
 ) -> list[dict]:
     segments = result.get("segments", [])
     if segments:
@@ -229,6 +229,8 @@ def suggest_clips_from_result(
 
 条件: 各クリップ30秒〜5分、話の区切りが自然な部分、チャットが盛り上がっている部分を優先。
 """
+    if extra_prompt:
+        prompt += f"\n## 追加指示\n{extra_prompt}\n"
 
     proc = subprocess.run(
         ["claude", "-p", prompt, "--output-format", "text"],
@@ -246,6 +248,152 @@ def suggest_clips_from_result(
         raise ValueError(f"Could not parse clip suggestions from Claude response:\n{text[:500]}")
 
     return json.loads(m.group())
+
+
+# ── Silence cut ───────────────────────────────────────────────────────────────
+
+def cut_silence_from_clips(
+    clips: list[dict], segments: list[dict], min_silence_sec: float = 2.0
+) -> list[dict]:
+    """
+    Trim leading/trailing silence and build keepIntervals for silent gaps.
+    Uses transcription segment boundaries — no audio processing needed.
+    Each clip is returned as-is (one dict) with a keepIntervals list when gaps exist.
+    """
+    MARGIN = 0.15  # seconds to keep before/after speech
+    MIN_CLIP_SEC = 5.0
+
+    result = []
+    for clip in clips:
+        c_start, c_end = clip["start_sec"], clip["end_sec"]
+
+        # Segments that overlap this clip
+        segs = [s for s in segments if s.get("end", 0) > c_start and s.get("start", 0) < c_end]
+        if not segs:
+            result.append(clip)
+            continue
+
+        # Trim clip boundaries to speech
+        trimmed_start = max(c_start, segs[0]["start"] - MARGIN)
+        trimmed_end   = min(c_end,   segs[-1]["end"]  + MARGIN)
+
+        # Walk segments and collect keepIntervals at silent gaps >= min_silence_sec
+        iv_start = trimmed_start
+        intervals: list[dict] = []
+        for i in range(len(segs) - 1):
+            gap_start = segs[i]["end"]
+            gap_end   = segs[i + 1]["start"]
+            if gap_end - gap_start >= min_silence_sec:
+                iv_end = min(gap_start + MARGIN, trimmed_end)
+                if iv_end - iv_start >= MIN_CLIP_SEC:
+                    intervals.append({"startSec": iv_start, "endSec": iv_end})
+                iv_start = max(gap_end - MARGIN, iv_start)
+
+        # Final (or only) interval
+        if trimmed_end - iv_start >= MIN_CLIP_SEC:
+            intervals.append({"startSec": iv_start, "endSec": trimmed_end})
+
+        if not intervals:
+            result.append(clip)
+            continue
+
+        new_clip = {**clip, "start_sec": trimmed_start, "end_sec": trimmed_end}
+        if len(intervals) > 1:
+            new_clip["keepIntervals"] = intervals
+        else:
+            # Single interval after trimming — just tighten the boundaries
+            new_clip["start_sec"] = intervals[0]["startSec"]
+            new_clip["end_sec"]   = intervals[0]["endSec"]
+        result.append(new_clip)
+
+    return result
+
+
+# ── Merge legacy split clips ──────────────────────────────────────────────────
+
+def merge_split_clips(clips: list[dict]) -> list[dict]:
+    """
+    Convert old-format split clips (_concat_group / _concat_index) to the new
+    single-clip + keepIntervals format.  Clips without _concat_group pass through.
+    """
+    import re as _re
+    from collections import defaultdict
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for clip in clips:
+        if clip.get("_concat_group"):
+            groups[clip["_concat_group"]].append(clip)
+
+    if not groups:
+        return clips  # fast path — nothing to migrate
+
+    result: list[dict] = []
+    seen: set[str] = set()
+
+    for clip in clips:
+        g = clip.get("_concat_group")
+        if not g:
+            result.append(clip)
+            continue
+        if g in seen:
+            continue
+        seen.add(g)
+        members = sorted(groups[g], key=lambda c: c.get("_concat_index", 0))
+        keep_intervals = [{"startSec": c["start_sec"], "endSec": c["end_sec"]} for c in members]
+        base_title = _re.sub(r"\s*\(\d+\)$", "", members[0].get("title", ""))
+        merged = {
+            **members[0],
+            "title": base_title,
+            "start_sec": members[0]["start_sec"],
+            "end_sec": members[-1]["end_sec"],
+            "keepIntervals": keep_intervals,
+        }
+        merged.pop("_concat_group", None)
+        merged.pop("_concat_index", None)
+        result.append(merged)
+
+    return result
+
+
+# ── Concat ────────────────────────────────────────────────────────────────────
+
+def concat_clips(paths: list[Path], out_path: Path) -> Path:
+    """Concatenate video files in order using ffmpeg concat demuxer (stream copy, no re-encode)."""
+    list_file = out_path.parent / f"_concat_{out_path.stem}.txt"
+    try:
+        with open(list_file, "w", encoding="utf-8") as f:
+            for p in paths:
+                f.write(f"file '{p.absolute()}'\n")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+             "-i", str(list_file), "-c", "copy", str(out_path)],
+            check=True,
+            capture_output=True,
+        )
+    finally:
+        list_file.unlink(missing_ok=True)
+    return out_path
+
+
+# ── Source video dimensions ───────────────────────────────────────────────────
+
+def get_video_dimensions(video_path: Path) -> tuple[int, int]:
+    """Return (width, height) of the video using ffprobe. Falls back to (1920, 1080)."""
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=s=x:p=0",
+                str(video_path),
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        w, h = proc.stdout.strip().split("x")
+        return int(w), int(h)
+    except Exception:
+        return 1920, 1080
 
 
 # ── Render ────────────────────────────────────────────────────────────────────
@@ -298,32 +446,41 @@ def render_clip(
     out_dir: Path,
     check_cancel: Callable[[], bool] | None = None,
     set_proc: Callable[[subprocess.Popen], None] | None = None,
+    src_aspect: float = 16 / 9,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     start_sec = clip["start_sec"]
     end_sec = clip["end_sec"]
     vertical = bool(clip.get("vertical", False))
+    vertical_mode = clip.get("verticalMode", "crop")
     crop_x = float(clip.get("cropX", 90))
     title = clip.get("title", f"clip_{index:02d}")
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)[:40]
+    # Strip only characters that are truly invalid in filenames; Japanese is fine on macOS/Linux
+    _invalid = set('/\\:*?"<>|\x00')
+    safe = "".join("_" if c in _invalid else c for c in title).strip()[:60] or f"clip_{index:02d}"
     if vertical:
-        safe += "_v"
+        safe += f"_{vertical_mode}"
+    safe += f"_{int(start_sec)}"
 
     video_abs = video_path.resolve()
 
-    props = json.dumps(
-        {
-            "videoSrc": video_abs.name,
-            "startSec": start_sec,
-            "endSec": end_sec,
-            "vertical": vertical,
-            "cropX": crop_x,
-            "title": clip.get("title", ""),
-            "captions": make_captions(segments, start_sec, end_sec),
-        },
-        ensure_ascii=False,
-    )
+    props_data: dict = {
+        "videoSrc": video_abs.name,
+        "startSec": start_sec,
+        "endSec": end_sec,
+        "vertical": vertical,
+        "verticalMode": vertical_mode,
+        "cropX": crop_x,
+        "faceCamZoom": float(clip.get("faceCamZoom", 1.5)),
+        "faceCamY": float(clip.get("faceCamY", 50)),
+        "title": clip.get("title", ""),
+        "captions": make_captions(segments, start_sec, end_sec),
+        "srcAspect": clip.get("srcAspect", src_aspect),
+    }
+    if clip.get("keepIntervals"):
+        props_data["keepIntervals"] = clip["keepIntervals"]
+    props = json.dumps(props_data, ensure_ascii=False)
 
     output_path = out_dir / f"{index:02d}_{safe}.mp4"
 

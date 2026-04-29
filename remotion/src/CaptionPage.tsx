@@ -32,7 +32,8 @@ const ACTIVE_SHADOW = [
 export const CaptionPage: React.FC<{
   page: TikTokPage;
   paddingBottomOverride?: number;
-}> = ({ page, paddingBottomOverride }) => {
+  topOffset?: number;
+}> = ({ page, paddingBottomOverride, topOffset }) => {
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const isVertical = height > width;
@@ -45,11 +46,11 @@ export const CaptionPage: React.FC<{
 
   return (
     <AbsoluteFill
-      style={{
-        justifyContent: "flex-end",
-        alignItems: "center",
-        paddingBottom,
-      }}
+      style={
+        topOffset !== undefined
+          ? { justifyContent: "flex-start", alignItems: "center", paddingTop: topOffset }
+          : { justifyContent: "flex-end", alignItems: "center", paddingBottom }
+      }
     >
       <div
         style={{

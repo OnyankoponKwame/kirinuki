@@ -162,7 +162,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .clip-times span { color: var(--muted); font-size: 11px; }
 .dur-tag { background: var(--surface); border-radius: 4px; color: var(--muted); font-size: 11px; padding: 2px 6px; }
 
-.clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .clip-foot { display: flex; justify-content: flex-end; }
 
 /* ── Downloads ── */
@@ -274,6 +274,10 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
         <select id="p2-lang"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="ko">한국어</option></select>
       </div>
     </div>
+    <div class="field" style="margin-top:8px">
+      <label>追加指示（任意）</label>
+      <textarea id="p2-extra-prompt" rows="2" placeholder="例: ゲーム実況、固有名詞: クロノトリガー、登場人物: 主人公・ルッカ" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
+    </div>
     <div class="phase-actions">
       <button class="btn-primary" id="ph2-btn" onclick="runPhase2()">▶ 文字起こし</button>
     </div>
@@ -321,6 +325,21 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
         </div>
       </div>
     </div>
+    <div class="field" style="margin-top:8px">
+      <label>追加指示（任意）</label>
+      <textarea id="p3-extra-prompt" rows="3" placeholder="例: ゲームの攻略シーンを優先して、感情が強い場面を選んでください" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="p3-silence-cut">
+        無音区間をカット
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px" id="p3-silence-threshold-wrap">
+        閾値:
+        <input type="number" id="p3-silence-threshold" value="2.0" min="0.5" max="10" step="0.5" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        秒以上の無音
+      </label>
+    </div>
     <div class="phase-actions">
       <button class="btn-primary" id="ph3-btn" onclick="runPhase3()">▶ 提案を生成</button>
     </div>
@@ -365,6 +384,20 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
         </div>
       </div>
     </div>
+    <div class="field-row" style="margin-top:6px">
+      <div class="field">
+        <label>ソース動画の向き</label>
+        <select id="p4-src-orientation" onchange="onSrcOrientationChange()">
+          <option value="">自動検出</option>
+          <option value="1.7778">横動画 (16:9)</option>
+          <option value="0.5625">縦動画 (9:16)</option>
+          <option value="1">正方形 (1:1)</option>
+        </select>
+      </div>
+      <div class="field" style="justify-content:flex-end;padding-top:20px">
+        <span id="p4-src-detected" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
     <div class="phase-actions">
       <button class="btn-secondary" id="ph4-load-btn" onclick="loadClipsForRender()">クリップを読み込む</button>
     </div>
@@ -397,7 +430,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const phaseJob = { 1: null, 2: null, 3: null, 4: null };
-const phaseOut = { video: null, transcription: null, clips: null };
+const phaseOut = { video: null, transcription: null, clips: null, srcAspect: null };
 
 // ── Panel toggle ───────────────────────────────────────────────────────────
 function togglePhase(id) {
@@ -617,6 +650,7 @@ async function runPhase1(chatOnly = false) {
     phaseJob[1] = job_id;
 
     openSSE(job_id, 1, async (msg, es) => {
+      if (msg.src_aspect) setSrcAspect(msg.src_aspect);
       if (msg.video_path) await propagate(msg.video_path, null);
 
       if (msg.status === 'ready') {
@@ -678,6 +712,7 @@ async function runPhase2() {
       body: JSON.stringify({
         video_path: videoFile,
         language: document.getElementById('p2-lang').value,
+        transcription_prompt: document.getElementById('p2-extra-prompt').value.trim() || undefined,
         clips: [],
       }),
     });
@@ -740,8 +775,13 @@ async function runPhase3() {
                      || null;
 
   try {
+    const extraPrompt = document.getElementById('p3-extra-prompt').value.trim();
+    const silenceCut = document.getElementById('p3-silence-cut').checked;
+    const silenceThreshold = parseFloat(document.getElementById('p3-silence-threshold').value) || 2.0;
     const body = { transcription_path: transFile };
     if (videoForTrans) body.video_path = videoForTrans;
+    if (extraPrompt) body.extra_prompt = extraPrompt;
+    if (silenceCut) { body.silence_cut = true; body.silence_threshold = silenceThreshold; }
 
     const res = await fetch('/api/jobs', {
       method: 'POST',
@@ -821,6 +861,7 @@ async function loadClipsForRender() {
     phaseJob[4] = job_id;
 
     openSSE(job_id, 4, (msg, es) => {
+      if (msg.src_aspect) setSrcAspect(msg.src_aspect);
       if (msg.status === 'ready' && msg.clips) {
         loadClipsIntoGrid(msg.clips);
         setBtnLoading('ph4-load-btn', false);
@@ -955,30 +996,69 @@ function loadClipsIntoGrid(clips) {
 
 function buildClipCard(clip, idx) {
   const card = document.createElement('div');
-  card.className = 'clip-card sel';
+  card.className = 'clip-card';
+  // Preserve fields that have no UI controls
+  card.dataset.keepIntervals = JSON.stringify(clip.keepIntervals || null);
+  card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
+
+  // Auto-check vertical when source is portrait (unless the clip explicitly set vertical)
+  const effectiveSrcAspect = phaseOut.srcAspect || 16/9;
+  const defaultVertical = clip.vertical != null ? clip.vertical : (effectiveSrcAspect < 1);
+
+  // Duration label — for keepIntervals clips use actual played duration
+  const playedDur = clip.keepIntervals
+    ? clip.keepIntervals.reduce((s, iv) => s + (iv.endSec - iv.startSec), 0)
+    : (clip.end_sec - clip.start_sec);
+
   card.innerHTML = `
     <div class="clip-top">
-      <input type="checkbox" class="clip-cb" checked>
+      <input type="checkbox" class="clip-cb">
       <textarea class="clip-title-input" rows="2">${escHtml(clip.title)}</textarea>
     </div>
     <div class="clip-times">
       <input type="number" class="t-start" value="${clip.start_sec.toFixed(1)}" step="0.5" min="0">
       <span>→</span>
       <input type="number" class="t-end" value="${clip.end_sec.toFixed(1)}" step="0.5" min="0">
-      <span class="dur-tag">${durStr(clip.start_sec, clip.end_sec)}</span>
+      <span class="dur-tag">${durStr(0, playedDur)}${clip.keepIntervals ? ' ✂' : ''}</span>
     </div>
     <div class="clip-reason">${escHtml(clip.reason || '')}</div>
     <div class="clip-foot">
       <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)">
-        <input type="checkbox" class="clip-vertical" ${clip.vertical ? 'checked' : ''}> 縦動画 (9:16)
+        <input type="checkbox" class="clip-vertical" ${defaultVertical ? 'checked' : ''}> 縦動画 (9:16)
       </label>
       <button class="btn-danger">削除</button>
     </div>
-    <div class="clip-crop-row" style="display:${clip.vertical ? 'block' : 'none'};margin-top:6px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-        <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
+    <div class="clip-vert-options" style="display:${clip.vertical ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px">
+      <div style="display:flex;gap:14px;font-size:12px;color:var(--muted)">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" ${(!clip.verticalMode || clip.verticalMode === 'crop') ? 'checked' : ''}>
+          クロップ（人物中心）
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="split" ${clip.verticalMode === 'split' ? 'checked' : ''}>
+          二段構成（全体＋顔）
+        </label>
       </div>
-      <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
+      <div class="clip-crop-row">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+          <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
+        </div>
+        <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
+      </div>
+      <div class="clip-split-only" style="display:${(clip.verticalMode === 'split') ? 'flex' : 'none'};flex-direction:column;gap:6px">
+<div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>縮小</span><span>顔zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 1.5}</b>x</span><span>拡大</span>
+          </div>
+          <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.1" value="${clip.faceCamZoom ?? 1.5}" style="width:100%">
+        </div>
+        <div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 50}</b>%</span><span>下 ↓</span>
+          </div>
+          <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 50}" style="width:100%">
+        </div>
+      </div>
     </div>
   `;
 
@@ -991,17 +1071,33 @@ function buildClipCard(clip, idx) {
   [ts, te].forEach(el => el.addEventListener('input', () => { dur.textContent = durStr(parseSec(ts.value), parseSec(te.value)); }));
 
   const vertCb = card.querySelector('.clip-vertical');
-  const cropRow = card.querySelector('.clip-crop-row');
-  vertCb.addEventListener('change', () => { cropRow.style.display = vertCb.checked ? 'block' : 'none'; });
+  const vertOptions = card.querySelector('.clip-vert-options');
+  vertCb.addEventListener('change', () => { vertOptions.style.display = vertCb.checked ? 'flex' : 'none'; });
 
   const cropSlider = card.querySelector('.clip-crop-x');
   const cropVal = card.querySelector('.crop-x-val');
   cropSlider.addEventListener('input', () => { cropVal.textContent = cropSlider.value; });
 
+  const splitOnly = card.querySelector('.clip-split-only');
+  card.querySelectorAll('.clip-vmode').forEach(r => {
+    r.addEventListener('change', () => {
+      splitOnly.style.display = (card.querySelector('.clip-vmode:checked') || {}).value === 'split' ? 'flex' : 'none';
+    });
+  });
+
+  const faceZoomSlider = card.querySelector('.clip-face-zoom');
+  const faceZoomVal = card.querySelector('.face-zoom-val');
+  faceZoomSlider.addEventListener('input', () => { faceZoomVal.textContent = parseFloat(faceZoomSlider.value).toFixed(1); });
+
+  const faceYSlider = card.querySelector('.clip-face-y');
+  const faceYVal = card.querySelector('.face-y-val');
+  faceYSlider.addEventListener('input', () => { faceYVal.textContent = faceYSlider.value; });
+
   card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
 
   return card;
 }
+
 
 function updateSelInfo() {
   const all = document.querySelectorAll('#ph4-clips-grid .clip-card').length;
@@ -1010,14 +1106,25 @@ function updateSelInfo() {
 }
 
 function readGridClips() {
-  return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => ({
-    title: c.querySelector('.clip-title-input').value,
-    start_sec: parseSec(c.querySelector('.t-start').value),
-    end_sec:   parseSec(c.querySelector('.t-end').value),
-    vertical: c.querySelector('.clip-vertical').checked,
-    cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
-    reason: '',
-  }));
+  const globalSrcAspect = parseFloat(document.getElementById('p4-src-orientation').value) || phaseOut.srcAspect || null;
+  return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => {
+    const keepIntervals = JSON.parse(c.dataset.keepIntervals || 'null');
+    const cardSrcAspect = parseFloat(c.dataset.srcAspect) || globalSrcAspect;
+    const clip = {
+      title: c.querySelector('.clip-title-input').value,
+      start_sec: parseSec(c.querySelector('.t-start').value),
+      end_sec:   parseSec(c.querySelector('.t-end').value),
+      vertical: c.querySelector('.clip-vertical').checked,
+      verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'crop',
+      cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
+      faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
+      faceCamY: parseInt(c.querySelector('.clip-face-y').value, 10),
+      reason: '',
+    };
+    if (keepIntervals) clip.keepIntervals = keepIntervals;
+    if (cardSrcAspect) clip.srcAspect = cardSrcAspect;
+    return clip;
+  });
 }
 
 function selectedGridIndices() {
@@ -1044,8 +1151,10 @@ async function openInStudio() {
   if (!videoFile) { alert('動画ファイルを選択してください'); return; }
   if (!transFile) { alert('文字起こしファイルを選択してください'); return; }
 
-  const clips = readGridClips();
-  if (clips.length === 0) { alert('クリップがありません'); return; }
+  const indices = selectedGridIndices();
+  if (indices.length === 0) { alert('Studioで確認するクリップを選択してください'); return; }
+  const allClips = readGridClips();
+  const clips = indices.map(i => allClips[i]);
 
   const btn = document.getElementById('ph4-studio-btn');
   btn.disabled = true;
@@ -1075,6 +1184,34 @@ const VIDEO_EXTS = new Set(['mp4', 'flac', 'mp3', 'wav', 'mov', 'mkv']);
 function isVideoFile(f) {
   return VIDEO_EXTS.has(f.name.split('.').pop().toLowerCase());
 }
+
+// ── Source orientation helpers ─────────────────────────────────────────────
+function setSrcAspect(aspect) {
+  phaseOut.srcAspect = aspect;
+  const sel = document.getElementById('p4-src-orientation');
+  const detected = document.getElementById('p4-src-detected');
+  if (!aspect) { detected.textContent = ''; return; }
+  const isPortrait = aspect < 1;
+  detected.textContent = `検出: ${isPortrait ? '縦動画' : '横動画'} (${aspect.toFixed(4)})`;
+  // Pre-select the matching option if user hasn't manually chosen yet
+  if (!sel.value) {
+    if (Math.abs(aspect - 16/9) < 0.01) sel.value = '1.7778';
+    else if (Math.abs(aspect - 9/16) < 0.01) sel.value = '0.5625';
+    else if (Math.abs(aspect - 1) < 0.01) sel.value = '1';
+    // else leave on "自動検出"
+  }
+}
+
+function onSrcOrientationChange() {
+  const val = parseFloat(document.getElementById('p4-src-orientation').value);
+  if (!isNaN(val)) phaseOut.srcAspect = val;
+}
+
+// 無音カット閾値欄の表示切替
+document.getElementById('p3-silence-cut').addEventListener('change', function() {
+  document.getElementById('p3-silence-threshold-wrap').style.display = this.checked ? '' : 'none';
+});
+document.getElementById('p3-silence-threshold-wrap').style.display = 'none';
 
 let dragCounter = 0;
 
