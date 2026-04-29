@@ -145,8 +145,43 @@ def download_chat_only(
 
 # ── Transcribe ────────────────────────────────────────────────────────────────
 
-def run_transcription(video_path: Path, language: str, initial_prompt: str | None = None) -> dict:
-    return transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt)
+def trim_video(video_path: Path, start_sec: float, end_sec: float | None) -> Path:
+    """Trim video to [start_sec, end_sec) using stream copy (fast, no re-encode). Returns a temp file."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=video_path.suffix or ".mp4", delete=False) as f:
+        out_path = Path(f.name)
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-ss", str(start_sec),
+    ]
+    if end_sec is not None:
+        cmd += ["-to", str(end_sec)]
+    cmd += ["-i", str(video_path), "-c", "copy", "-y", str(out_path)]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out_path
+
+
+def offset_timestamps(result: dict, offset_sec: float) -> None:
+    """Shift all segment/word timestamps in-place by offset_sec."""
+    for seg in result.get("segments", []):
+        seg["start"] = seg.get("start", 0) + offset_sec
+        seg["end"] = seg.get("end", 0) + offset_sec
+    for word in result.get("words", []):
+        word["start"] = word.get("start", 0) + offset_sec
+        word["end"] = word.get("end", 0) + offset_sec
+
+
+def run_transcription(
+    video_path: Path,
+    language: str,
+    initial_prompt: str | None = None,
+    audio_mode: str = "mp3",
+    transcription_model: str = "groq",
+) -> dict:
+    if transcription_model == "gemini":
+        from gemini_transcribe import transcribe_with_gemini
+        return transcribe_with_gemini(video_path, language=language, initial_prompt=initial_prompt)
+    return transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
 
 
 def save_transcription(result: dict, video_path: Path) -> Path:
@@ -478,8 +513,12 @@ def render_clip(
         "captions": make_captions(segments, start_sec, end_sec),
         "srcAspect": clip.get("srcAspect", src_aspect),
     }
+    if clip.get("captionFontSize"):
+        props_data["captionFontSize"] = int(clip["captionFontSize"])
     if clip.get("keepIntervals"):
         props_data["keepIntervals"] = clip["keepIntervals"]
+    if clip.get("theme"):
+        props_data["theme"] = clip["theme"]
     props = json.dumps(props_data, ensure_ascii=False)
 
     output_path = out_dir / f"{index:02d}_{safe}.mp4"

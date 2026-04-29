@@ -275,6 +275,47 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
       </div>
     </div>
     <div class="field" style="margin-top:8px">
+      <label>文字起こしモデル</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-trans-model" value="groq" checked style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
+          <span><b>Groq Whisper</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">高速・チャンク分割処理で長時間動画に対応</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-trans-model" value="gemini" style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
+          <span><b>Gemini 2.5 Flash</b><br><span style="color:var(--muted);font-size:11px">チャンク分割なし・ファイル全体をアップロードして一括処理</span></span>
+        </label>
+      </div>
+    </div>
+    <div id="p2-audio-mode-wrap" style="margin-top:8px">
+      <div class="field">
+      <label>音声変換モード</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-audio-mode" value="mp3" checked style="margin-top:3px;flex-shrink:0">
+          <span><b>MP3変換</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">16kHz mono 32kbps・速度とサイズのバランスが最良</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-audio-mode" value="flac_fast" style="margin-top:3px;flex-shrink:0">
+          <span><b>FLAC（高速）</b><br><span style="color:var(--muted);font-size:11px">無劣化・圧縮レベル最低でFLAC変換を高速化</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-audio-mode" value="stream_copy" style="margin-top:3px;flex-shrink:0">
+          <span><b>ストリームコピー</b><br><span style="color:var(--muted);font-size:11px">再エンコードなし・数秒で完了。Groq API 側でダウンサンプリング</span></span>
+        </label>
+      </div>
+      </div>
+    </div>
+    <div class="field" style="margin-top:8px">
+      <label>文字起こし範囲（任意・分単位）</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+        <input type="number" id="p2-trim-start" placeholder="開始 (例: 10.5)" min="0" step="0.5" style="width:160px;font-size:13px;padding:6px 10px">
+        <span style="color:var(--muted);font-size:13px">〜</span>
+        <input type="number" id="p2-trim-end" placeholder="終了 (省略=末尾まで)" min="0" step="0.5" style="width:200px;font-size:13px;padding:6px 10px">
+        <span style="color:var(--muted);font-size:11px">分 (10.5 = 10分30秒)</span>
+      </div>
+    </div>
+    <div class="field" style="margin-top:8px">
       <label>追加指示（任意）</label>
       <textarea id="p2-extra-prompt" rows="2" placeholder="例: ゲーム実況、固有名詞: クロノトリガー、登場人物: 主人公・ルッカ" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
     </div>
@@ -428,6 +469,12 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 </main>
 
 <script>
+// ── Color themes ──────────────────────────────────────────────────────────
+const CLIP_THEMES = {
+  yumeno: 'yumeno',
+  heisei_girl: '平成女児',
+};
+
 // ── State ──────────────────────────────────────────────────────────────────
 const phaseJob = { 1: null, 2: null, 3: null, 4: null };
 const phaseOut = { video: null, transcription: null, clips: null, srcAspect: null };
@@ -470,6 +517,14 @@ function appendLog(consoleId, text) {
   c.scrollTop = c.scrollHeight;
 }
 
+// ── Transcription model toggle ─────────────────────────────────────────────
+function onTransModelChange() {
+  const isGemini = document.querySelector('input[name="p2-trans-model"]:checked')?.value === 'gemini';
+  document.getElementById('p2-audio-mode-wrap').style.display = isGemini ? 'none' : '';
+  const label2 = document.getElementById('ph2-chunk-label-text');
+  if (label2) label2.textContent = isGemini ? '文字起こし' : '文字起こし';
+}
+
 // ── Transcription progress parser ──────────────────────────────────────────
 function updateTranscribeProgress(text) {
   const prog = document.getElementById('ph2-progress');
@@ -481,6 +536,29 @@ function updateTranscribeProgress(text) {
     prog.hidden = false;
     document.getElementById('ph2-conv-pct').textContent = pct + '%';
     document.getElementById('ph2-conv-fill').style.width = pct + '%';
+  }
+
+  // Gemini: アップロード中
+  if (text.includes('Gemini') && text.includes('アップロード中')) {
+    prog.hidden = false;
+    if (document.getElementById('ph2-conv-pct').textContent !== '100%') {
+      document.getElementById('ph2-conv-pct').textContent = '100%';
+      document.getElementById('ph2-conv-fill').style.width = '100%';
+    }
+    document.getElementById('ph2-chunk-label').textContent = 'アップロード中...';
+    document.getElementById('ph2-chunk-fill').style.width = '30%';
+  }
+
+  // Gemini: アップロード完了 → 文字起こし中
+  if (text.includes('Gemini') && text.includes('アップロード完了')) {
+    document.getElementById('ph2-chunk-label').textContent = '文字起こし中...';
+    document.getElementById('ph2-chunk-fill').style.width = '60%';
+  }
+
+  // Gemini: 文字起こし完了
+  if (text.includes('Gemini') && text.includes('文字起こし完了')) {
+    document.getElementById('ph2-chunk-label').textContent = '完了';
+    document.getElementById('ph2-chunk-fill').style.width = '100%';
   }
 
   // チャンク K/N を送信中 or ✓ チャンク K/N 完了
@@ -713,6 +791,10 @@ async function runPhase2() {
         video_path: videoFile,
         language: document.getElementById('p2-lang').value,
         transcription_prompt: document.getElementById('p2-extra-prompt').value.trim() || undefined,
+        audio_mode: document.querySelector('input[name="p2-audio-mode"]:checked')?.value || 'mp3',
+        transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'groq',
+        ...(document.getElementById('p2-trim-start').value !== '' ? { trim_start_min: parseFloat(document.getElementById('p2-trim-start').value) } : {}),
+        ...(document.getElementById('p2-trim-end').value !== '' ? { trim_end_min: parseFloat(document.getElementById('p2-trim-end').value) } : {}),
         clips: [],
       }),
     });
@@ -1000,6 +1082,7 @@ function buildClipCard(clip, idx) {
   // Preserve fields that have no UI controls
   card.dataset.keepIntervals = JSON.stringify(clip.keepIntervals || null);
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
+  card.dataset.theme = clip.theme || 'yumeno';
 
   // Auto-check vertical when source is portrait (unless the clip explicitly set vertical)
   const effectiveSrcAspect = phaseOut.srcAspect || 16/9;
@@ -1020,6 +1103,20 @@ function buildClipCard(clip, idx) {
       <span>→</span>
       <input type="number" class="t-end" value="${clip.end_sec.toFixed(1)}" step="0.5" min="0">
       <span class="dur-tag">${durStr(0, playedDur)}${clip.keepIntervals ? ' ✂' : ''}</span>
+    </div>
+    <div class="clip-crop-row" style="margin-top:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+        <span>小</span><span>字幕サイズ: <b class="caption-size-val">${clip.captionFontSize ?? 96}</b>px</span><span>大</span>
+      </div>
+      <input type="range" class="clip-caption-size" min="48" max="160" step="4" value="${clip.captionFontSize ?? 96}" style="width:100%">
+    </div>
+    <div class="clip-crop-row" style="margin-top:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+        <span>カラーテーマ</span>
+      </div>
+      <select class="clip-theme" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
+        ${Object.entries(CLIP_THEMES).map(([k, v]) => `<option value="${k}" ${(clip.theme || 'yumeno') === k ? 'selected' : ''}>${escHtml(v)}</option>`).join('')}
+      </select>
     </div>
     <div class="clip-reason">${escHtml(clip.reason || '')}</div>
     <div class="clip-foot">
@@ -1045,19 +1142,17 @@ function buildClipCard(clip, idx) {
         </div>
         <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
       </div>
-      <div class="clip-split-only" style="display:${(clip.verticalMode === 'split') ? 'flex' : 'none'};flex-direction:column;gap:6px">
-<div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>縮小</span><span>顔zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 1.5}</b>x</span><span>拡大</span>
-          </div>
-          <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.1" value="${clip.faceCamZoom ?? 1.5}" style="width:100%">
+      <div class="clip-crop-row">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+          <span>縮小</span><span>zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? ((!clip.verticalMode || clip.verticalMode === 'crop') ? 1.0 : 1.5)}</b>x</span><span>拡大</span>
         </div>
-        <div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 50}</b>%</span><span>下 ↓</span>
-          </div>
-          <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 50}" style="width:100%">
+        <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.1" value="${clip.faceCamZoom ?? ((!clip.verticalMode || clip.verticalMode === 'crop') ? 1.0 : 1.5)}" style="width:100%">
+      </div>
+      <div class="clip-crop-row">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+          <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 50}</b>%</span><span>下 ↓</span>
         </div>
+        <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 50}" style="width:100%">
       </div>
     </div>
   `;
@@ -1074,16 +1169,13 @@ function buildClipCard(clip, idx) {
   const vertOptions = card.querySelector('.clip-vert-options');
   vertCb.addEventListener('change', () => { vertOptions.style.display = vertCb.checked ? 'flex' : 'none'; });
 
+  const captionSizeSlider = card.querySelector('.clip-caption-size');
+  const captionSizeVal = card.querySelector('.caption-size-val');
+  captionSizeSlider.addEventListener('input', () => { captionSizeVal.textContent = captionSizeSlider.value; });
+
   const cropSlider = card.querySelector('.clip-crop-x');
   const cropVal = card.querySelector('.crop-x-val');
   cropSlider.addEventListener('input', () => { cropVal.textContent = cropSlider.value; });
-
-  const splitOnly = card.querySelector('.clip-split-only');
-  card.querySelectorAll('.clip-vmode').forEach(r => {
-    r.addEventListener('change', () => {
-      splitOnly.style.display = (card.querySelector('.clip-vmode:checked') || {}).value === 'split' ? 'flex' : 'none';
-    });
-  });
 
   const faceZoomSlider = card.querySelector('.clip-face-zoom');
   const faceZoomVal = card.querySelector('.face-zoom-val');
@@ -1116,12 +1208,23 @@ function readGridClips() {
       end_sec:   parseSec(c.querySelector('.t-end').value),
       vertical: c.querySelector('.clip-vertical').checked,
       verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'crop',
+      captionFontSize: parseInt(c.querySelector('.clip-caption-size').value, 10),
       cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
       faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
       faceCamY: parseInt(c.querySelector('.clip-face-y').value, 10),
+      theme: c.querySelector('.clip-theme').value,
       reason: '',
     };
-    if (keepIntervals) clip.keepIntervals = keepIntervals;
+    if (keepIntervals) {
+      // Adjust first/last interval boundaries to match user-edited start/end times,
+      // so extended ranges play with correct captions while preserving silence cuts within.
+      const adjusted = keepIntervals.map(iv => ({ ...iv }));
+      if (Math.abs(clip.start_sec - adjusted[0].startSec) > 0.05)
+        adjusted[0].startSec = clip.start_sec;
+      if (Math.abs(clip.end_sec - adjusted[adjusted.length - 1].endSec) > 0.05)
+        adjusted[adjusted.length - 1].endSec = clip.end_sec;
+      clip.keepIntervals = adjusted;
+    }
     if (cardSrcAspect) clip.srcAspect = cardSrcAspect;
     return clip;
   });

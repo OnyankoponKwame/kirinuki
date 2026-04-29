@@ -1,4 +1,4 @@
-from groq import Groq, RateLimitError
+from groq import Groq, RateLimitError, APIStatusError
 from pydub import AudioSegment
 import json
 from pathlib import Path
@@ -9,13 +9,40 @@ import os
 import tempfile
 import re
 
-def preprocess_audio(input_path: Path) -> Path:
+# audio_mode → (tempfile suffix, ffmpeg codec args, pydub format)
+_AUDIO_MODE_CONFIG: dict[str, tuple[str, list[str], str]] = {
+    "mp3": (
+        ".mp3",
+        ["-ar", "16000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "32k", "-threads", "0"],
+        "mp3",
+    ),
+    "flac_fast": (
+        ".flac",
+        ["-ar", "16000", "-ac", "1", "-c:a", "flac", "-compression_level", "0", "-threads", "0"],
+        "flac",
+    ),
+    "stream_copy": (
+        ".m4a",
+        ["-vn", "-c:a", "copy"],
+        "mp4",
+    ),
+}
+
+
+def preprocess_audio(input_path: Path, audio_mode: str = "mp3") -> tuple[Path, str]:
     """
-    Preprocess audio file to 16kHz mono FLAC using ffmpeg.
-    FLAC provides lossless compression for faster upload times.
+    Preprocess audio for Whisper transcription.
+    Returns (temp_path, pydub_format).
+    audio_mode: "mp3" | "flac_fast" | "stream_copy"
     """
+    if input_path.suffix.lower() in {".flac", ".mp3", ".wav", ".m4a", ".aac"}:
+        # Already a pure audio file — skip conversion
+        return input_path, input_path.suffix.lstrip(".")
+
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    suffix, codec_args, pydub_fmt = _AUDIO_MODE_CONFIG.get(audio_mode, _AUDIO_MODE_CONFIG["mp3"])
 
     # Probe total duration for progress reporting
     total_dur = 0.0
@@ -33,7 +60,7 @@ def preprocess_audio(input_path: Path) -> Path:
     except Exception:
         pass
 
-    with tempfile.NamedTemporaryFile(suffix='.flac', delete=False) as temp_file:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
         output_path = Path(temp_file.name)
 
     dur_label = f" ({int(total_dur // 60)}分{int(total_dur % 60)}秒)" if total_dur > 0 else ""
@@ -44,7 +71,7 @@ def preprocess_audio(input_path: Path) -> Path:
             'ffmpeg', '-hide_banner', '-loglevel', 'error',
             '-progress', 'pipe:2',
             '-i', str(input_path),
-            '-ar', '16000', '-ac', '1', '-c:a', 'flac',
+            *codec_args,
             '-y', str(output_path),
         ],
         stderr=subprocess.PIPE,
@@ -73,7 +100,7 @@ def preprocess_audio(input_path: Path) -> Path:
         raise RuntimeError("FFmpeg conversion failed")
 
     print("  音声変換: 100%")
-    return output_path
+    return output_path, pydub_fmt
     
 def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, total_chunks: int, language: str = "ja", initial_prompt: str | None = None) -> tuple[dict, float]:
     """
@@ -92,11 +119,12 @@ def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, t
         Exception: If chunk transcription fails after retries
     """
     total_api_time = 0
-    
-    while True:
+    max_retries = 5
+
+    for attempt in range(max_retries):
         with tempfile.NamedTemporaryFile(suffix='.flac') as temp_file:
             chunk.export(temp_file.name, format='flac')
-            
+
             start_time = time.time()
             try:
                 create_kwargs = dict(
@@ -110,18 +138,34 @@ def transcribe_single_chunk(client: Groq, chunk: AudioSegment, chunk_num: int, t
                 result = client.audio.transcriptions.create(**create_kwargs)
                 api_time = time.time() - start_time
                 total_api_time += api_time
-                
+
                 print(f"✓ チャンク {chunk_num}/{total_chunks} 完了 ({api_time:.1f}秒)")
                 return result, total_api_time
 
-            except RateLimitError as e:
-                print(f"  レート制限に達しました（チャンク {chunk_num}）— 60秒後に再試行...")
-                time.sleep(60)  # default wait time
-                continue
-                
             except Exception as e:
-                print(f"✗ チャンク {chunk_num} でエラー: {str(e)}")
+                status = getattr(e, 'status_code', None)
+                err_str = str(e)
+                # 5xx 系: APIStatusError の status_code か、HTML レスポンス文字列で判定
+                _RETRYABLE_CODES = (429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
+                retryable = (
+                    (status is not None and status in _RETRYABLE_CODES)
+                    or any(str(c) in err_str for c in _RETRYABLE_CODES)
+                )
+                if retryable and attempt < max_retries - 1:
+                    wait = 60
+                    try:
+                        body = e.body if hasattr(e, 'body') else {}
+                        if isinstance(body, dict) and body.get('retry_after'):
+                            wait = int(body['retry_after'])
+                    except Exception:
+                        pass
+                    print(f"  サーバーエラー（チャンク {chunk_num}、試行 {attempt + 1}/{max_retries}）— {wait}秒後に再試行...")
+                    time.sleep(wait)
+                    continue
+                print(f"✗ チャンク {chunk_num} でエラー: {err_str}")
                 raise
+
+    raise RuntimeError(f"チャンク {chunk_num} が {max_retries} 回試行後も失敗しました")
 
 def find_longest_common_sequence(sequences: list[str], match_by_words: bool = True) -> str:
     """
@@ -457,7 +501,7 @@ def save_results(result: dict, audio_path: Path) -> Path:
         print(f"Error saving results: {str(e)}")
         raise
 
-def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overlap: int = 10, language: str = "ja", initial_prompt: str | None = None) -> dict:
+def transcribe_audio_in_chunks(audio_path: Path, overlap: int = 10, language: str = "ja", initial_prompt: str | None = None, audio_mode: str = "mp3", max_chunk_mb: float = 24.0) -> dict:
     """
     Transcribe audio in chunks with overlap with Whisper via Groq API.
     
@@ -481,10 +525,12 @@ def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overla
     client = Groq(api_key=api_key, max_retries=0)
 
     processed_path = None
+    is_temp = False
     try:
-        processed_path = preprocess_audio(audio_path)
+        processed_path, pydub_fmt = preprocess_audio(audio_path, audio_mode)
+        is_temp = processed_path != audio_path
         try:
-            audio = AudioSegment.from_file(processed_path, format="flac")
+            audio = AudioSegment.from_file(processed_path, format=pydub_fmt)
         except Exception as e:
             raise RuntimeError(f"音声の読み込みに失敗しました: {str(e)}")
 
@@ -493,10 +539,16 @@ def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overla
         dur_sec = int(duration / 1000 % 60)
         print(f"▶ 音声時間: {dur_min}分{dur_sec}秒")
 
-        chunk_ms = chunk_length * 1000
+        # チャンク長をファイルサイズ上限から逆算
+        # FLAC は raw PCM の約 65% に圧縮される（保守的見積もり）
+        raw_bytes_per_ms = (audio.frame_rate * audio.sample_width * audio.channels) / 1000
+        flac_bytes_per_ms = raw_bytes_per_ms * 0.65
+        chunk_ms = int(max_chunk_mb * 1024 * 1024 / flac_bytes_per_ms)
         overlap_ms = overlap * 1000
-        total_chunks = (duration // (chunk_ms - overlap_ms)) + 1
-        print(f"▶ {total_chunks}チャンクに分割して処理します")
+        chunk_ms = max(chunk_ms, overlap_ms * 2 + 1000)  # 最低でも overlap の2倍以上
+        estimated_mb = flac_bytes_per_ms * chunk_ms / (1024 * 1024)
+        total_chunks = max(1, -(-duration // (chunk_ms - overlap_ms)))  # ceiling div
+        print(f"▶ チャンク長: {chunk_ms // 1000}秒（推定 {estimated_mb:.1f}MB/チャンク）、{total_chunks}チャンクに分割")
 
         results = []
         total_transcription_time = 0
@@ -517,9 +569,8 @@ def transcribe_audio_in_chunks(audio_path: Path, chunk_length: int = 600, overla
         
         return final_result
     
-    # Clean up temp files regardless of successful creation    
     finally:
-        if processed_path:
+        if processed_path and is_temp:
             Path(processed_path).unlink(missing_ok=True)
 
 if __name__ == "__main__":

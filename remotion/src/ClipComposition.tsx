@@ -13,6 +13,8 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { CaptionPage } from "./CaptionPage";
 import { makeCaptions } from "./utils";
+import { THEMES, DEFAULT_THEME_KEY } from "./themes";
+import type { ClipTheme } from "./themes";
 import studioData from "./studioData.json";
 import popSound from "../public/Onoma-Pop04.mp3";
 
@@ -48,7 +50,7 @@ export const clipSchema = z.object({
     .min(0.5)
     .max(8)
     .optional()
-    .describe("顔 cam ズーム率（split モード用、デフォルト 1.5）"),
+    .describe("顔 cam ズーム率（crop: デフォルト 1.0 / split: デフォルト 1.5）"),
   faceCamY: z
     .number()
     .min(0)
@@ -67,6 +69,13 @@ export const clipSchema = z.object({
     .max(10)
     .optional()
     .describe("ソース動画アスペクト比（幅÷高さ、デフォルト 16/9）"),
+  captionFontSize: z
+    .number()
+    .min(24)
+    .max(200)
+    .optional()
+    .describe("字幕フォントサイズ（px）"),
+  theme: z.string().optional().describe("カラーテーマ名"),
 });
 
 export type ClipProps = z.infer<typeof clipSchema>;
@@ -82,6 +91,7 @@ export const defaultClipProps: ClipProps = {
   faceCamY: 50,
   title: "",
   captions: [],
+  captionFontSize: 96,
 };
 
 // ── Metadata ──────────────────────────────────────────────────────────────────
@@ -106,6 +116,7 @@ export const calculateMetadata: CalculateMetadataFunction<ClipProps> = ({
 const COMBINE_TOKENS_MS = 0;
 const SAFE_AREA_TOP = 40;
 const VERTICAL_PADDING = 12;
+const TITLE_H_PADDING = 4;
 // クロップモードの字幕下マージン（概要欄オーバーレイを避けるため大きめに）
 const CROP_CAPTION_PADDING_BOTTOM = 260;
 const DEFAULT_SRC_ASPECT = 16 / 9;
@@ -143,10 +154,11 @@ function calcTitleBar(title: string, containerWidth: number) {
   const longestLen = lines.reduce((m, l) => Math.max(m, l.length), 0);
   // Single-line titles: treat as 2-line baseline so font wraps rather than spanning full width
   const charsPerLine = lines.length >= 2 ? longestLen : title.length / 2;
-  const fsByWidth = charsPerLine > 0 ? (containerWidth * 0.93) / charsPerLine : 110;
+  const usableWidth = containerWidth - TITLE_H_PADDING * 2;
+  const fsByWidth = charsPerLine > 0 ? usableWidth / charsPerLine : 140;
   const fsByTotal = 2000 / title.length;
-  const titleFontSize = Math.min(110, Math.floor(fsByWidth), Math.floor(fsByTotal));
-  const autoWrapLines = Math.ceil((title.length * titleFontSize) / (containerWidth * 0.93));
+  const titleFontSize = Math.min(140, Math.floor(fsByWidth), Math.floor(fsByTotal));
+  const autoWrapLines = Math.ceil((title.length * titleFontSize) / usableWidth);
   const estimatedLines = Math.max(lines.length, autoWrapLines, 2);
   const titleBarHeight = Math.round(
     titleFontSize * 1.3 * estimatedLines + VERTICAL_PADDING * 2 + SAFE_AREA_TOP,
@@ -157,7 +169,7 @@ function calcTitleBar(title: string, containerWidth: number) {
 function renderCaptionPages(
   pages: ReturnType<typeof createTikTokStyleCaptions>["pages"],
   fps: number,
-  options?: { paddingBottomOverride?: number; topOffset?: number },
+  options?: { paddingBottomOverride?: number; topOffset?: number; captionFontSize?: number; theme?: ClipTheme },
 ) {
   return pages.map((page, i) => {
     const startFrame = Math.round((page.startMs / 1000) * fps);
@@ -173,6 +185,8 @@ function renderCaptionPages(
           page={page}
           paddingBottomOverride={options?.paddingBottomOverride}
           topOffset={options?.topOffset}
+          captionFontSize={options?.captionFontSize}
+          theme={options?.theme}
         />
       </Sequence>
     );
@@ -183,10 +197,12 @@ function TitleBar({
   title,
   titleFontSize,
   titleBarHeight,
+  theme,
 }: {
   title: string;
   titleFontSize: number;
   titleBarHeight: number;
+  theme: ClipTheme;
 }) {
   return (
     <AbsoluteFill
@@ -197,8 +213,8 @@ function TitleBar({
         style={{
           width: "100%",
           height: titleBarHeight,
-          background: "linear-gradient(to right, #FF1493 0%, #B200FF 100%)",
-          padding: `${SAFE_AREA_TOP + VERTICAL_PADDING}px 20px ${VERTICAL_PADDING}px`,
+          background: theme.titleBackground,
+          padding: `${SAFE_AREA_TOP + VERTICAL_PADDING}px ${TITLE_H_PADDING}px ${VERTICAL_PADDING}px`,
           textAlign: "center",
           display: "flex",
           alignItems: "center",
@@ -211,9 +227,9 @@ function TitleBar({
             fontFamily: '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
             fontSize: titleFontSize,
             fontWeight: 900,
-            color: "#FFFFFF",
-            WebkitTextStroke: "5px #4A0E4E",
-            textShadow: "8px 8px 0px #4A0E4E",
+            color: theme.titleTextColor,
+            WebkitTextStroke: `5px ${theme.titleAccentColor}`,
+            textShadow: `8px 8px 0px ${theme.titleAccentColor}`,
             lineHeight: 1.2,
             whiteSpace: "pre-wrap",
           }}
@@ -236,14 +252,17 @@ export const ClipComposition: React.FC<ClipProps> = ({
   vertical,
   verticalMode = "crop",
   cropX,
-  faceCamZoom = 1.5,
-  faceCamY = 50,
+  faceCamZoom,
+  faceCamY,
   title,
   captions,
   keepIntervals,
   srcAspect,
+  captionFontSize,
+  theme: themeKey,
 }) => {
   const SRC_ASPECT = srcAspect ?? DEFAULT_SRC_ASPECT;
+  const theme = THEMES[themeKey ?? DEFAULT_THEME_KEY] ?? THEMES[DEFAULT_THEME_KEY];
 
   const { fps, width, height } = useVideoConfig();
   const frame = useCurrentFrame();
@@ -314,7 +333,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
           trimBefore={trimBefore}
         />
-        <AbsoluteFill>{renderCaptionPages(pages, fps)}</AbsoluteFill>
+        <AbsoluteFill>{renderCaptionPages(pages, fps, { captionFontSize, theme })}</AbsoluteFill>
       </AbsoluteFill>
     );
   }
@@ -322,39 +341,25 @@ export const ClipComposition: React.FC<ClipProps> = ({
   // ── 縦動画: クロップモード ────────────────────────────────────────────────────
   // 動画をフレーム全体に広げ、タイトルバーは上端にオーバーレイ（アスペクト比を保持）
   if (verticalMode === "crop") {
-    // タイトルバーを動画の上に重ねるため topOffset は 0 — 動画はフル高さを使う
-    const scaledW = Math.round(height * SRC_ASPECT);
+    const cropZoom = faceCamZoom ?? 1.0;
+    const scaledH = Math.round(height * cropZoom);
+    const scaledW = Math.round(scaledH * SRC_ASPECT);
+    const topOffset = -Math.round((scaledH - height) * ((faceCamY ?? 50) / 100));
     const leftOffset = -Math.round((scaledW - width) * (cropX / 100));
 
     return (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
         <style>{GOOGLE_FONT}</style>
 
-        {/* 背景: ぼかし動画 */}
-        <AbsoluteFill>
-          <Video
-            src={staticFile(videoSrc)}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              filter: "blur(40px)",
-              opacity: 0.5,
-              transform: "scale(1.1)",
-            }}
-            trimBefore={trimBefore}
-          />
-        </AbsoluteFill>
-
-        {/* メイン動画: クロップ（フル高さ） */}
+        {/* メイン動画: クロップ（zoom/Y適用） */}
         <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
           <Video
             src={staticFile(videoSrc)}
             style={{
               position: "absolute",
               width: scaledW,
-              height,
-              top: 0,
+              height: scaledH,
+              top: topOffset,
               left: leftOffset,
             }}
             trimBefore={trimBefore}
@@ -362,10 +367,10 @@ export const ClipComposition: React.FC<ClipProps> = ({
         </div>
 
         {/* タイトルバー: 動画の上にオーバーレイ */}
-        {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} />}
+        {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} />}
 
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, { paddingBottomOverride: CROP_CAPTION_PADDING_BOTTOM })}
+          {renderCaptionPages(pages, fps, { paddingBottomOverride: CROP_CAPTION_PADDING_BOTTOM, captionFontSize, theme })}
         </AbsoluteFill>
       </AbsoluteFill>
     );
@@ -385,10 +390,10 @@ export const ClipComposition: React.FC<ClipProps> = ({
   const faceTop = bottomTop + Math.round((bottomH - faceCamSize) / 2);
 
   // 顔 cam 内部の動画: faceCamZoom 率で縦横拡大
-  const faceCamInnerH = Math.round(faceCamSize * faceCamZoom);
+  const faceCamInnerH = Math.round(faceCamSize * (faceCamZoom ?? 1.5));
   const faceCamInnerW = Math.round(faceCamInnerH * (16 / 9));
   // faceCamY% の行が円の中央に来るよう縦オフセット
-  const faceCamVideoTop = -Math.round((faceCamInnerH - faceCamSize) * (faceCamY / 100));
+  const faceCamVideoTop = -Math.round((faceCamInnerH - faceCamSize) * ((faceCamY ?? 50) / 100));
   // cropX% の位置を顔 cam 横中央に揃える
   const rawFaceLeft = Math.round(faceCamSize / 2 - faceCamInnerW * (cropX / 100));
   const faceCamVideoLeft = Math.max(-(faceCamInnerW - faceCamSize), Math.min(0, rawFaceLeft));
@@ -419,7 +424,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
       </div>
 
       {/* タイトルバー */}
-      {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} />}
+      {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} />}
 
       {/* 下段: 顔 cam (絶対配置でズーム) */}
       <div
@@ -451,7 +456,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
 
       {/* 字幕: 顔 cam エリア上端からオーバーレイ */}
       <AbsoluteFill>
-        {renderCaptionPages(pages, fps, { topOffset: captionTopOffset })}
+        {renderCaptionPages(pages, fps, { topOffset: captionTopOffset, captionFontSize, theme })}
       </AbsoluteFill>
     </AbsoluteFill>
   );

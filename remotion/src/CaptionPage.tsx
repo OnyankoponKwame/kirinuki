@@ -1,7 +1,9 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import type { TikTokPage } from "@remotion/captions";
+import { THEMES, DEFAULT_THEME_KEY } from "./themes";
+import type { ClipTheme } from "./themes";
 
-const OUTLINE_COLOR = "#000000"; // 白抜き用の黒縁
+const OUTLINE_COLOR = "#000000";
 const TEXT_SHADOW = [
   `-3px -3px 0 ${OUTLINE_COLOR}`,
   ` 3px -3px 0 ${OUTLINE_COLOR}`,
@@ -14,26 +16,29 @@ const TEXT_SHADOW = [
   `0 4px 10px rgba(0,0,0,0.6)`,
 ].join(",");
 
-const ACTIVE_COLOR = "#fe27c8ff"; // 読み上げる箇所はピンク (DeepPink)
-const ACTIVE_OUTLINE = "#FFFFFF"; // ピンクを引き立てる白縁
-const ACTIVE_SHADOW = [
-  `-3px -3px 0 ${ACTIVE_OUTLINE}`,
-  ` 3px -3px 0 ${ACTIVE_OUTLINE}`,
-  `-3px  3px 0 ${ACTIVE_OUTLINE}`,
-  ` 3px  3px 0 ${ACTIVE_OUTLINE}`,
-  ` 0px  3px 0 ${ACTIVE_OUTLINE}`,
-  ` 0px -3px 0 ${ACTIVE_OUTLINE}`,
-  ` 3px  0px 0 ${ACTIVE_OUTLINE}`,
-  `-3px  0px 0 ${ACTIVE_OUTLINE}`,
-  "5px 5px 0px #4A0E4E", // 外側の濃い紫の影（立体感用）
-  "0 0 15px rgba(254, 39, 200, 0.5)", // 柔らかなピンクの光
-].join(",");
+function makeActiveShadow(theme: ClipTheme): string {
+  return [
+    `-3px -3px 0 #FFFFFF`,
+    ` 3px -3px 0 #FFFFFF`,
+    `-3px  3px 0 #FFFFFF`,
+    ` 3px  3px 0 #FFFFFF`,
+    ` 0px  3px 0 #FFFFFF`,
+    ` 0px -3px 0 #FFFFFF`,
+    ` 3px  0px 0 #FFFFFF`,
+    `-3px  0px 0 #FFFFFF`,
+    `5px 5px 0px ${theme.titleAccentColor}`,
+    `0 0 15px ${theme.captionActiveGlow}`,
+  ].join(",");
+}
 
 export const CaptionPage: React.FC<{
   page: TikTokPage;
   paddingBottomOverride?: number;
   topOffset?: number;
-}> = ({ page, paddingBottomOverride, topOffset }) => {
+  captionFontSize?: number;
+  theme?: ClipTheme;
+}> = ({ page, paddingBottomOverride, topOffset, captionFontSize, theme }) => {
+  const t = theme ?? THEMES[DEFAULT_THEME_KEY];
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
   const isVertical = height > width;
@@ -41,7 +46,7 @@ export const CaptionPage: React.FC<{
   const currentTimeMs = (frame / fps) * 1000;
   const absoluteTimeMs = page.startMs + currentTimeMs;
 
-  const fontSize = isVertical ? 86 : 64;
+  const fontSize = captionFontSize ?? (isVertical ? 96 : 72);
   const paddingBottom = paddingBottomOverride ?? (isVertical ? 160 : 64);
 
   return (
@@ -54,8 +59,8 @@ export const CaptionPage: React.FC<{
     >
       <div
         style={{
-          padding: isVertical ? "16px 30px" : "10px 22px",
-          maxWidth: isVertical ? "90%" : "84%",
+          padding: isVertical ? "16px 20px" : "10px 16px",
+          maxWidth: isVertical ? "96%" : "92%",
           textAlign: "center",
         }}
       >
@@ -65,7 +70,7 @@ export const CaptionPage: React.FC<{
               '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
             fontSize,
             fontWeight: "900",
-            color: "#FFFFFF",
+            color: t.captionTextColor,
             textShadow: TEXT_SHADOW,
             whiteSpace: "pre-wrap",
             lineHeight: 1.55,
@@ -79,7 +84,7 @@ export const CaptionPage: React.FC<{
                 key={token.fromMs}
                 style={
                   isActive
-                    ? { color: ACTIVE_COLOR, textShadow: ACTIVE_SHADOW }
+                    ? { color: t.captionActiveColor, textShadow: makeActiveShadow(t) }
                     : {}
                 }
               >

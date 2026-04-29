@@ -4,3 +4,4 @@ uvicorn[standard]
 python-dotenv
 pydub
 groq
+google-genai

@@ -51,6 +51,10 @@ def _new_job(req: "StartReq") -> str:
         "_in_transcription": req.transcription_path,
         "_transcription_prompt": req.transcription_prompt,
         "_in_clips": req.clips_path,
+        "_audio_mode": req.audio_mode,
+        "_transcription_model": req.transcription_model,
+        "_trim_start_sec": req.trim_start_min * 60 if req.trim_start_min is not None else None,
+        "_trim_end_sec": req.trim_end_min * 60 if req.trim_end_min is not None else None,
         "_extra_prompt": req.extra_prompt,
         "_silence_cut": req.silence_cut,
         "_silence_threshold": req.silence_threshold,
@@ -141,9 +145,39 @@ def _run_pipeline(job_id: str) -> None:
             log(f"▶ 文字起こし使用: {t_path.name}")
         else:
             job["stage"] = "transcribing"
-            log("▶ Transcribing audio...")
-            with pl.with_logging(log):
-                result = pl.run_transcription(video_path, job["_language"], job.get("_transcription_prompt"))
+            trim_start = job.get("_trim_start_sec")
+            trim_end = job.get("_trim_end_sec")
+            trimmed_path = None
+            try:
+                if trim_start is not None or trim_end is not None:
+                    start_s = trim_start or 0.0
+                    start_label = f"{start_s / 60:.1f}分"
+                    end_label = f"{trim_end / 60:.1f}分" if trim_end is not None else "末尾"
+                    log(f"▶ 指定範囲をクリップ中: {start_label} 〜 {end_label}")
+                    with pl.with_logging(log):
+                        trimmed_path = pl.trim_video(video_path, start_s, trim_end)
+                    log(f"✓ クリップ完了: {trimmed_path.name}")
+                    transcribe_src = trimmed_path
+                else:
+                    transcribe_src = video_path
+
+                log("▶ Transcribing audio...")
+                with pl.with_logging(log):
+                    result = pl.run_transcription(
+                        transcribe_src,
+                        job["_language"],
+                        job.get("_transcription_prompt"),
+                        job.get("_audio_mode", "mp3"),
+                        job.get("_transcription_model", "groq"),
+                    )
+            finally:
+                if trimmed_path:
+                    trimmed_path.unlink(missing_ok=True)
+
+            if trim_start:
+                pl.offset_timestamps(result, trim_start)
+                log(f"✓ タイムスタンプを {trim_start:.1f}秒 オフセット済み")
+
             t_path = pl.save_transcription(result, video_path)
             job["transcription_path"] = str(t_path)
             log(f"✓ Transcription: {t_path.name}")
@@ -211,6 +245,10 @@ class StartReq(BaseModel):
     video_path: str | None = None          # skip download
     transcription_path: str | None = None  # skip transcription
     transcription_prompt: str | None = None  # initial prompt for Whisper transcription
+    audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
+    transcription_model: str = "groq"    # transcription backend: "groq" | "gemini"
+    trim_start_min: float | None = None  # clip video before transcription (minutes)
+    trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
     clips: list[dict] | None = None        # skip suggestion (inline)
     extra_prompt: str | None = None        # additional instruction for clip suggestion
@@ -473,8 +511,12 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
             "captions": captions,
             "srcAspect": clip.get("srcAspect", src_aspect),
         }
+        if clip.get("captionFontSize"):
+            props["captionFontSize"] = int(clip["captionFontSize"])
         if clip.get("keepIntervals"):
             props["keepIntervals"] = clip["keepIntervals"]
+        if clip.get("theme"):
+            props["theme"] = clip["theme"]
         lines.append(
             f"const clip{i:02d}Props: ClipProps = {json.dumps(props, ensure_ascii=False, indent=2)};"
         )
