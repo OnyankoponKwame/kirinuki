@@ -1,5 +1,6 @@
 anthropic
 fastapi
+python-multipart
 uvicorn[standard]
 python-dotenv
 pydub
