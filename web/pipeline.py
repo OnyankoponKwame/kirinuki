@@ -188,13 +188,16 @@ def run_transcription(
     language: str,
     initial_prompt: str | None = None,
     audio_mode: str = "mp3",
-    transcription_model: str = "groq",
+    transcription_model: str = "elevenlabs",
 ) -> dict:
     if transcription_model == "gemini":
         from gemini_transcribe import transcribe_with_gemini
         raw = transcribe_with_gemini(video_path, language=language, initial_prompt=initial_prompt)
-    else:
+    elif transcription_model == "groq":
         raw = transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
+    else:
+        from elevenlabs_transcribe import transcribe_with_elevenlabs
+        raw = transcribe_with_elevenlabs(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
     return slim_transcription_result(raw)
 
 

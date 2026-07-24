@@ -4,22 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio with Groq Whisper, uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
+Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (ElevenLabs Scribe by default; Groq Whisper and Gemini 2.5 Flash are also selectable), uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # set ANTHROPIC_API_KEY and GROQ_API_KEY
+cp .env.example .env   # set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY
 cd remotion && npm install
 ```
 
 Required system tools: `yt-dlp`, `ffmpeg`, `ffprobe`, `npx`
 
-API keys (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, optionally `GEMINI_API_KEY`) can also be
-set from the in-app settings screen (⚙ 設定) instead of `.env` — see `web/config.py`.
-That's the path packaged/distributed installs use (see `packaging/windows/`); `.env`
-remains the dev-machine convenience.
+API keys (`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, optionally `GROQ_API_KEY`/`GEMINI_API_KEY`
+for the alternate transcription backends) can also be set from the in-app settings screen
+(⚙ 設定) instead of `.env` — see `web/config.py`. That's the path packaged/distributed
+installs use (see `packaging/windows/`); `.env` remains the dev-machine convenience.
 
 ## Running the app
 
@@ -35,7 +35,7 @@ The project has three layers that communicate through the filesystem and subproc
 
 ### Python backend (`web/`)
 - `web/app.py` — FastAPI server. Manages in-memory jobs (dict keyed by UUID). Each job runs `pipeline.py` in a thread pool executor. The frontend polls `/api/jobs/{jid}/events` via SSE.
-- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `audio_chunking_code.py`), `suggest_clips_from_result` (calls the Anthropic API directly via the `anthropic` SDK), `render_clip` (calls `npx remotion render`).
+- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `elevenlabs_transcribe.py` / `audio_chunking_code.py` / `gemini_transcribe.py` depending on `transcription_model`), `suggest_clips_from_result` (calls the Anthropic API directly via the `anthropic` SDK), `render_clip` (calls `npx remotion render`).
 - `web/config.py` — Persists API keys entered via the settings screen to `config.json` under `get_data_dir()` (repo root in dev, `%LOCALAPPDATA%\Kirinuki` on a packaged Windows install), and applies them to `os.environ` on top of `.env`.
 
 ### Remotion renderer (`remotion/`)
@@ -44,15 +44,17 @@ The project has three layers that communicate through the filesystem and subproc
 - `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (auto-generated for Remotion Studio preview).
 - `remotion/src/studioCompositions.tsx` — **Auto-generated** by `app.py`'s `_generate_studio_compositions()` when "Studio で確認" is clicked. Do not edit manually.
 
-### Transcription (`audio-chunking/`)
-- `audio_chunking_code.py` — Converts video to 16kHz mono FLAC via ffmpeg, then sends to Groq Whisper in chunks (handles rate limits).
+### Transcription (`audio-chunking/`, `web/`)
+- `web/elevenlabs_transcribe.py` — **Default** backend. ElevenLabs Speech-to-Text has no file size/duration limit, so the whole preprocessed audio file is sent in a single request (no chunking). Its response only has word-level timestamps, not segments, so `_words_to_segments()` regroups words into Whisper/Groq-like sentence segments (splits on silence gaps, sentence-ending punctuation, or length) for the rest of the pipeline.
+- `audio_chunking_code.py` — Groq Whisper backend. Converts video to 16kHz mono FLAC via ffmpeg, then sends to Groq Whisper in chunks (handles rate limits, needed since Groq has tighter per-request size limits).
+- `web/gemini_transcribe.py` — Gemini 2.5 Flash backend. Also a single whole-file upload, no chunking.
 
 ## Key data flow
 
 ```
 URL → yt-dlp → .mp4 (downloads/)
             ↓
-      Groq Whisper → *_full.json (transcriptions/)
+      ElevenLabs Scribe (既定) / Groq Whisper / Gemini → *_full.json (transcriptions/)
             ↓
       Anthropic API → clips_*.json (transcriptions/)
             ↓

@@ -263,7 +263,7 @@ class StartReq(BaseModel):
     transcription_path: str | None = None  # skip transcription
     transcription_prompt: str | None = None  # initial prompt for Whisper transcription
     audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
-    transcription_model: str = "groq"    # transcription backend: "groq" | "gemini"
+    transcription_model: str = "elevenlabs"  # transcription backend: "elevenlabs" | "groq" | "gemini"
     trim_start_min: float | None = None  # clip video before transcription (minutes)
     trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
@@ -292,6 +292,7 @@ class SettingsReq(BaseModel):
     anthropic_api_key: str | None = None
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
+    elevenlabs_api_key: str | None = None
 
 
 @app.get("/api/settings")
@@ -305,6 +306,7 @@ def update_settings(req: SettingsReq):
         "ANTHROPIC_API_KEY": req.anthropic_api_key,
         "GROQ_API_KEY": req.groq_api_key,
         "GEMINI_API_KEY": req.gemini_api_key,
+        "ELEVENLABS_API_KEY": req.elevenlabs_api_key,
     })
     return cfg.settings_status()
 
@@ -318,9 +320,10 @@ async def create_job(req: StartReq):
     if not req.chat_only and req.stop_after != "download":
         status = cfg.settings_status()
         if not req.transcription_path:
-            needed_key = "gemini" if req.transcription_model == "gemini" else "groq"
+            key_labels = {"gemini": "Gemini", "groq": "Groq", "elevenlabs": "ElevenLabs"}
+            needed_key = req.transcription_model if req.transcription_model in key_labels else "elevenlabs"
             if not status[needed_key]:
-                missing.append("Gemini" if needed_key == "gemini" else "Groq")
+                missing.append(key_labels[needed_key])
         if req.clips is None and not req.clips_path and not status["anthropic"]:
             missing.append("Anthropic")
     if missing:

@@ -233,7 +233,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 </div>
 
 <div id="settings-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;display:flex;flex-direction:column;gap:16px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
     <h2 style="font-size:16px">API キー設定</h2>
     <div class="field">
       <label>Anthropic API キー（必須・切り抜き提案に使用）</label>
@@ -241,7 +241,12 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
       <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">console.anthropic.com で取得</a>
     </div>
     <div class="field">
-      <label>Groq API キー（必須・文字起こしに使用）</label>
+      <label>ElevenLabs API キー（必須・文字起こしに使用）</label>
+      <input type="password" id="settings-elevenlabs" placeholder="設定済みの場合は入力不要">
+      <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">elevenlabs.io で取得</a>
+    </div>
+    <div class="field">
+      <label>Groq API キー（任意・Groq文字起こし使用時のみ）</label>
       <input type="password" id="settings-groq" placeholder="設定済みの場合は入力不要">
       <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">console.groq.com で取得</a>
     </div>
@@ -330,8 +335,12 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
       <label>文字起こしモデル</label>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
-          <input type="radio" name="p2-trans-model" value="groq" checked style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
-          <span><b>Groq Whisper</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">高速・チャンク分割処理で長時間動画に対応</span></span>
+          <input type="radio" name="p2-trans-model" value="elevenlabs" checked style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
+          <span><b>ElevenLabs Scribe</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">サイズ・長さ制限なし・チャンク分割不要で一括処理</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p2-trans-model" value="groq" style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
+          <span><b>Groq Whisper</b><br><span style="color:var(--muted);font-size:11px">高速・チャンク分割処理で長時間動画に対応</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
           <input type="radio" name="p2-trans-model" value="gemini" style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
@@ -612,10 +621,9 @@ function appendLog(consoleId, text) {
 
 // ── Transcription model toggle ─────────────────────────────────────────────
 function onTransModelChange() {
-  const isGemini = document.querySelector('input[name="p2-trans-model"]:checked')?.value === 'gemini';
-  document.getElementById('p2-audio-mode-wrap').style.display = isGemini ? 'none' : '';
-  const label2 = document.getElementById('ph2-chunk-label-text');
-  if (label2) label2.textContent = isGemini ? '文字起こし' : '文字起こし';
+  const model = document.querySelector('input[name="p2-trans-model"]:checked')?.value;
+  const noChunking = model === 'gemini' || model === 'elevenlabs';
+  document.getElementById('p2-audio-mode-wrap').style.display = noChunking ? 'none' : '';
 }
 
 // ── Transcription progress parser ──────────────────────────────────────────
@@ -886,7 +894,7 @@ async function runPhase2() {
         language: document.getElementById('p2-lang').value,
         transcription_prompt: document.getElementById('p2-extra-prompt').value.trim() || undefined,
         audio_mode: document.querySelector('input[name="p2-audio-mode"]:checked')?.value || 'mp3',
-        transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'groq',
+        transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'elevenlabs',
         ...(document.getElementById('p2-trim-start').value !== '' ? { trim_start_min: parseFloat(document.getElementById('p2-trim-start').value) } : {}),
         ...(document.getElementById('p2-trim-end').value !== '' ? { trim_end_min: parseFloat(document.getElementById('p2-trim-end').value) } : {}),
         clips: [],
@@ -1748,7 +1756,7 @@ async function refreshSettingsBanner() {
   }
   const missing = [];
   if (!status.anthropic) missing.push('Anthropic');
-  if (!status.groq) missing.push('Groq');
+  if (!status.elevenlabs) missing.push('ElevenLabs');
   const banner = document.getElementById('settings-banner');
   if (missing.length) {
     document.getElementById('settings-banner-text').textContent =
@@ -1766,8 +1774,14 @@ async function openSettings() {
   const status = await fetchSettingsStatus();
   const statusText = (label, ok) => `${label}: ${ok ? '設定済み ✓' : '未設定'}`;
   document.getElementById('settings-modal-status').textContent =
-    [statusText('Anthropic', status.anthropic), statusText('Groq', status.groq), statusText('Gemini', status.gemini)].join(' / ');
+    [
+      statusText('Anthropic', status.anthropic),
+      statusText('ElevenLabs', status.elevenlabs),
+      statusText('Groq', status.groq),
+      statusText('Gemini', status.gemini),
+    ].join(' / ');
   document.getElementById('settings-anthropic').value = '';
+  document.getElementById('settings-elevenlabs').value = '';
   document.getElementById('settings-groq').value = '';
   document.getElementById('settings-gemini').value = '';
 }
@@ -1779,6 +1793,7 @@ function closeSettings() {
 async function saveSettings() {
   const body = {
     anthropic_api_key: document.getElementById('settings-anthropic').value || null,
+    elevenlabs_api_key: document.getElementById('settings-elevenlabs').value || null,
     groq_api_key: document.getElementById('settings-groq').value || null,
     gemini_api_key: document.getElementById('settings-gemini').value || null,
   };
@@ -1798,6 +1813,7 @@ async function saveSettings() {
 // ── Init ───────────────────────────────────────────────────────────────────
 initAllFileLists();
 refreshSettingsBanner();
+onTransModelChange();
 </script>
 </body>
 </html>
