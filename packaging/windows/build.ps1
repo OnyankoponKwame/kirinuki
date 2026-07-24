@@ -45,7 +45,7 @@ $PythonVersion = "3.12.7"
 $PythonZipUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
 $GetPipUrl     = "https://bootstrap.pypa.io/get-pip.py"
 
-$NodeVersion   = "20.17.0"
+$NodeVersion   = "24.18.0"
 $NodeZipUrl    = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-win-x64.zip"
 
 $FfmpegZipUrl  = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
