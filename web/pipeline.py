@@ -776,11 +776,18 @@ def render_clip(
     import tempfile
 
     # 動画ファイルが大きいため、downloads/をそのまま--public-dirにすると
-    # Remotionのbundlerが全ファイルをコピーしてしまう。
-    # シンボリックリンクはコピーされず転送されるため、動画はsymlinkで参照する。
+    # Remotionのbundlerが全ファイルをコピーしてしまう。そこで動画1本だけを
+    # 一時ディレクトリに用意して--public-dirにする。以前はsymlinkで参照して
+    # いたが、Remotionのbundlerはpublic-dirを一時バンドル用ディレクトリへ
+    # コピーする際にsymlinkの中身を正しく転送せず404になることが判明したため、
+    # ハードリンク(同一ボリューム内なら実体コピーなしで済む)を優先し、
+    # 別ボリューム等でハードリンクが使えない場合のみ実コピーにフォールバックする。
     tmp_pub = Path(tempfile.mkdtemp(prefix="remotion_pub_"))
     try:
-        os.symlink(video_abs, tmp_pub / video_abs.name)
+        try:
+            os.link(video_abs, tmp_pub / video_abs.name)
+        except OSError:
+            shutil.copy2(video_abs, tmp_pub / video_abs.name)
         for name in ["kkrn_icon_user_2.png", "Onoma-Pop04.mp3"]:
             src = REMOTION_DIR / "public" / name
             if src.exists():
