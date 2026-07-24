@@ -9,15 +9,27 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 
 PROJECT_DIR = Path(__file__).parent.parent
-DOWNLOADS_DIR = PROJECT_DIR / "downloads"
-TRANSCRIPTIONS_DIR = PROJECT_DIR / "transcriptions"
+
+# .env (dev convenience) loads first; config.json (settings screen, packaged installs)
+# is applied on top of it — see web/config.py.
+load_dotenv(PROJECT_DIR / ".env")
+import config as cfg  # noqa: E402
+
+cfg.load_settings()
+cfg.bootstrap_bin_path()
+
+DATA_DIR = cfg.get_data_dir()
+DOWNLOADS_DIR = DATA_DIR / "downloads"
+TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"
 REMOTION_DIR = PROJECT_DIR / "remotion"
+CLIPS_DIR = DATA_DIR / "remotion" / "out"
 
 app = FastAPI(title="Kirinuki Web")
 
@@ -195,7 +207,7 @@ def _run_pipeline(job_id: str) -> None:
             log("▶ Asking Claude for clip suggestions...")
             assert result is not None
             job["clips"] = pl.suggest_clips_from_result(result, chat_path, job.get("_extra_prompt"))
-            clips_file = pl.save_clips(job["clips"], video_path)
+            clips_file = pl.save_clips(job["clips"], t_path)
             job["clips_path"] = str(clips_file)
             log(f"✓ {len(job['clips'])} 件のクリップを提案 → {clips_file.name}")
 
@@ -207,10 +219,15 @@ def _run_pipeline(job_id: str) -> None:
             )
             log(f"✓ 無音カット: {before} 件 → {len(job['clips'])} 件")
             if job.get("clips_path"):
-                clips_file = pl.save_clips(job["clips"], video_path)
+                clips_file = pl.save_clips(job["clips"], t_path)
                 job["clips_path"] = str(clips_file)
 
-        # Migrate any old-style split clips (_concat_group) to keepIntervals format
+        if result is not None:
+            job["clips"] = pl.enrich_clip_caption_effects(
+                job["clips"], result.get("segments", [])
+            )
+
+        # Migrate any old-style split clips (_concat_group) to cutIntervals format
         job["clips"] = pl.merge_split_clips(job["clips"])
 
         job["stage"] = "ready"
@@ -271,10 +288,44 @@ class RenderReq(BaseModel):
     indices: list[int] | None = None  # None = all clips
 
 
+class SettingsReq(BaseModel):
+    anthropic_api_key: str | None = None
+    groq_api_key: str | None = None
+    gemini_api_key: str | None = None
+
+
+@app.get("/api/settings")
+def get_settings():
+    return cfg.settings_status()
+
+
+@app.put("/api/settings")
+def update_settings(req: SettingsReq):
+    cfg.save_settings({
+        "ANTHROPIC_API_KEY": req.anthropic_api_key,
+        "GROQ_API_KEY": req.groq_api_key,
+        "GEMINI_API_KEY": req.gemini_api_key,
+    })
+    return cfg.settings_status()
+
+
 @app.post("/api/jobs")
 async def create_job(req: StartReq):
     if _active_job:
         raise HTTPException(409, "別のジョブが実行中です")
+
+    missing: list[str] = []
+    if not req.chat_only and req.stop_after != "download":
+        status = cfg.settings_status()
+        if not req.transcription_path:
+            needed_key = "gemini" if req.transcription_model == "gemini" else "groq"
+            if not status[needed_key]:
+                missing.append("Gemini" if needed_key == "gemini" else "Groq")
+        if req.clips is None and not req.clips_path and not status["anthropic"]:
+            missing.append("Anthropic")
+    if missing:
+        raise HTTPException(400, f"{'・'.join(missing)} のAPIキーが設定画面で未設定です。")
+
     jid = _new_job(req)
     asyncio.create_task(_pipeline_task(jid))
     return {"job_id": jid}
@@ -347,7 +398,7 @@ async def start_render(jid: str, req: RenderReq):
             segments: list[dict] = transcription.get("segments", [])
 
             indices = req.indices if req.indices is not None else list(range(len(clips)))
-            clips_dir = PROJECT_DIR / "clips"
+            clips_dir = CLIPS_DIR
             loop = asyncio.get_running_loop()
             src_aspect = job.get("src_aspect", 16 / 9)
 
@@ -421,7 +472,7 @@ async def upload_video(file: UploadFile = File(...)):
 
 @app.get("/api/clips/{filename}")
 def serve_clip(filename: str):
-    path = PROJECT_DIR / "clips" / filename
+    path = CLIPS_DIR / filename
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="video/mp4", filename=filename)
@@ -430,11 +481,12 @@ def serve_clip(filename: str):
 @app.get("/api/files")
 def list_files(type: str = Query(...)):
     configs: dict[str, tuple[Path, list[str]]] = {
-        "video":         (DOWNLOADS_DIR,      ["*.mp4"]),
-        "audio":         (DOWNLOADS_DIR,      ["*.mp4", "*.flac", "*.mp3", "*.wav"]),
-        "chat":          (DOWNLOADS_DIR,      ["*.live_chat.json"]),
-        "transcription": (TRANSCRIPTIONS_DIR, ["*_full.json"]),
-        "clips":         (TRANSCRIPTIONS_DIR, ["clips*.json"]),
+        "video":           (DOWNLOADS_DIR,        ["*.mp4"]),
+        "audio":           (DOWNLOADS_DIR,        ["*.mp4", "*.flac", "*.mp3", "*.wav"]),
+        "chat":            (DOWNLOADS_DIR,        ["*.live_chat.json"]),
+        "transcription":   (TRANSCRIPTIONS_DIR,   ["*_full.json"]),
+        "clips":           (TRANSCRIPTIONS_DIR,   ["clips*.json"]),
+        "rendered_clips":  (CLIPS_DIR,              ["*.mp4"]),
     }
     if type not in configs:
         raise HTTPException(400, f"Unknown type: {type}")
@@ -456,34 +508,11 @@ class StudioReq(BaseModel):
 _studio_video_dir: str | None = None  # public-dir the current Studio was started with
 
 
-def _make_captions_ts(segments: list[dict], start_sec: float, end_sec: float) -> list[dict]:
-    captions = []
-    for seg in segments:
-        s = seg.get("start", 0)
-        e = seg.get("end", 0)
-        if e <= start_sec or s >= end_sec:
-            continue
-        start_ms = max(0.0, (s - start_sec) * 1000)
-        end_ms = (min(e, end_sec) - start_sec) * 1000
-        text = seg.get("text", "").strip()
-        if not text:
-            continue
-        if len(text) >= 18:
-            split_idx = text.find("、")
-            if split_idx == -1 or split_idx < 5 or split_idx > len(text) - 5:
-                split_idx = len(text) // 2
-            else:
-                split_idx += 1
-            half_time = start_ms + (end_ms - start_ms) * (split_idx / len(text))
-            captions.append({"text": " " + text[:split_idx].strip(), "startMs": start_ms, "endMs": half_time})
-            captions.append({"text": " " + text[split_idx:].strip(), "startMs": half_time, "endMs": end_ms})
-        else:
-            captions.append({"text": " " + text, "startMs": start_ms, "endMs": end_ms})
-    return captions
 
 
 def _generate_studio_compositions(video_src: str, segments: list[dict], clips: list[dict], src_aspect: float = 16 / 9) -> str:
     """Generate studioCompositions.tsx with static named consts so Remotion can save props."""
+    import pipeline as _pl
     lines = [
         "// Auto-generated by Kirinuki web app — do not edit manually",
         'import { Composition } from "remotion";',
@@ -497,24 +526,37 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
     ]
 
     for i, clip in enumerate(clips):
-        captions = _make_captions_ts(segments, clip["start_sec"], clip["end_sec"])
+        captions = _pl.make_captions(
+            segments,
+            clip["start_sec"],
+            clip["end_sec"],
+            clip.get("captionEffect"),
+        )
         props: dict = {
             "videoSrc": video_src,
             "startSec": clip["start_sec"],
             "endSec": clip["end_sec"],
             "vertical": bool(clip.get("vertical", False)),
-            "verticalMode": clip.get("verticalMode", "crop"),
+            "verticalMode": clip.get("verticalMode", "split"),
             "cropX": float(clip.get("cropX", 90)),
             "faceCamZoom": float(clip.get("faceCamZoom", 1.5)),
             "faceCamY": float(clip.get("faceCamY", 50)),
+            "splitTopRatio": int(clip.get("splitTopRatio", 5)),
+            "mainZoom": float(clip.get("mainZoom", 1.0)),
+            "mainCropX": float(clip.get("mainCropX", 50)),
+            "mainCropY": float(clip.get("mainCropY", 50)),
             "title": clip.get("title", ""),
             "captions": captions,
             "srcAspect": clip.get("srcAspect", src_aspect),
         }
         if clip.get("captionFontSize"):
             props["captionFontSize"] = int(clip["captionFontSize"])
-        if clip.get("keepIntervals"):
-            props["keepIntervals"] = clip["keepIntervals"]
+        if clip.get("captionEffect") in _pl.CAPTION_EFFECTS:
+            props["captionEffect"] = clip["captionEffect"]
+        if clip.get("captionFont"):
+            props["captionFont"] = clip["captionFont"]
+        if clip.get("cutIntervals"):
+            props["cutIntervals"] = clip["cutIntervals"]
         if clip.get("theme"):
             props["theme"] = clip["theme"]
         lines.append(
@@ -525,9 +567,9 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
     lines.append("export const StudioCompositions: React.FC = () => (")
     lines.append("  <>")
     for i, clip in enumerate(clips):
-        keep_ivs = clip.get("keepIntervals")
-        if keep_ivs:
-            dur_sec = sum(iv["endSec"] - iv["startSec"] for iv in keep_ivs)
+        cut_ivs = clip.get("cutIntervals")
+        if cut_ivs:
+            dur_sec = (clip["end_sec"] - clip["start_sec"]) - sum(iv["endSec"] - iv["startSec"] for iv in cut_ivs)
         else:
             dur_sec = clip["end_sec"] - clip["start_sec"]
         dur = max(1, round(dur_sec * 30))
@@ -567,7 +609,7 @@ async def open_studio(req: StudioReq):
 
     segments = transcription.get("segments", [])
 
-    # Migrate any old-style split clips (_concat_group) to keepIntervals before Studio
+    # Migrate any old-style split clips (_concat_group) to cutIntervals before Studio
     import pipeline as _pl
     merged_clips = _pl.merge_split_clips(req.clips)
 
@@ -607,11 +649,58 @@ async def open_studio(req: StudioReq):
             cwd=REMOTION_DIR,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **cfg.no_window_kwargs(),
         )
         _studio_video_dir = video_dir
         await asyncio.sleep(4)
 
     return {"url": "http://localhost:3009"}
+
+
+class ConcatReq(BaseModel):
+    filenames: list[str]
+
+
+@app.post("/api/concat")
+async def concat_clips(req: ConcatReq):
+    import datetime
+    import tempfile
+
+    if len(req.filenames) < 2:
+        raise HTTPException(400, "結合には2つ以上のファイルが必要です")
+
+    clips_dir = CLIPS_DIR
+    clips_dir.mkdir(exist_ok=True)
+
+    input_paths: list[Path] = []
+    for name in req.filenames:
+        safe = Path(name).name
+        p = clips_dir / safe
+        if not p.exists():
+            raise HTTPException(404, f"ファイルが見つかりません: {name}")
+        input_paths.append(p)
+
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"concat_{ts}.mp4"
+    out_path = CLIPS_DIR / out_name
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        for p in input_paths:
+            f.write(f"file '{p.as_posix()}'\n")
+        list_file = f.name
+
+    try:
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", str(out_path)]
+        loop = asyncio.get_running_loop()
+        proc = await loop.run_in_executor(
+            None, lambda: subprocess.run(cmd, capture_output=True, **cfg.no_window_kwargs())
+        )
+        if proc.returncode != 0:
+            raise HTTPException(500, f"ffmpeg concat 失敗: {proc.stderr.decode(errors='replace')[:300]}")
+    finally:
+        Path(list_file).unlink(missing_ok=True)
+
+    return {"filename": out_name}
 
 
 # Serve frontend (must be mounted last)

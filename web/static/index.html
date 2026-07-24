@@ -76,7 +76,7 @@ main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; display: flex;
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
 
-input[type=text], input[type=number], select, .file-wrap input {
+input[type=text], input[type=number], input[type=password], select, .file-wrap input {
   background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
   color: var(--text); font-size: 13px; padding: 8px 12px; outline: none;
   width: 100%; transition: border-color .15s;
@@ -186,6 +186,26 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 .prog-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s ease; }
 .prog-fill.green { background: var(--green); }
 
+/* ── Concat list ── */
+.concat-list {
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 52px; border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px;
+}
+.concat-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 8px; }
+.concat-item {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px;
+  cursor: grab; user-select: none; transition: opacity .15s, border-color .1s;
+}
+.concat-item.dragging { opacity: .35; }
+.concat-item.drag-over { border-color: var(--accent); }
+.concat-handle { color: var(--muted); font-size: 16px; line-height: 1; flex-shrink: 0; }
+.concat-name { flex: 1; font-size: 12px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.concat-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 0 2px; line-height: 1; transition: color .1s; }
+.concat-remove:hover { color: var(--red); }
+
 /* ── Drop overlay ── */
 #drop-overlay {
   position: fixed; inset: 0; z-index: 9999;
@@ -212,15 +232,47 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   </div>
 </div>
 
+<div id="settings-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;display:flex;flex-direction:column;gap:16px">
+    <h2 style="font-size:16px">API キー設定</h2>
+    <div class="field">
+      <label>Anthropic API キー（必須・切り抜き提案に使用）</label>
+      <input type="password" id="settings-anthropic" placeholder="設定済みの場合は入力不要">
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">console.anthropic.com で取得</a>
+    </div>
+    <div class="field">
+      <label>Groq API キー（必須・文字起こしに使用）</label>
+      <input type="password" id="settings-groq" placeholder="設定済みの場合は入力不要">
+      <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">console.groq.com で取得</a>
+    </div>
+    <div class="field">
+      <label>Gemini API キー（任意・Gemini文字起こし使用時のみ）</label>
+      <input type="password" id="settings-gemini" placeholder="設定済みの場合は入力不要">
+      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">aistudio.google.com で取得</a>
+    </div>
+    <div id="settings-modal-status" style="font-size:12px;color:var(--muted)"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn-secondary" onclick="closeSettings()">閉じる</button>
+      <button class="btn-primary" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
     <rect width="26" height="26" rx="7" fill="#ffd60a"/>
     <polygon points="9,6 21,13 9,20" fill="#000"/>
   </svg>
   <div><h1>Kirinuki</h1><div class="sub">YouTube 切り抜き自動生成</div></div>
+  <button class="btn-secondary" id="settings-btn" onclick="openSettings()" style="margin-left:auto">⚙ 設定</button>
 </header>
 
 <main>
+
+<div id="settings-banner" class="error-box" hidden style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+  <span id="settings-banner-text"></span>
+  <button class="btn-secondary" onclick="openSettings()" style="flex-shrink:0">設定する</button>
+</div>
 
 <!-- ────────────────── PHASE 1: Download ────────────────── -->
 <div class="phase" id="ph1">
@@ -293,7 +345,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
           <input type="radio" name="p2-audio-mode" value="mp3" checked style="margin-top:3px;flex-shrink:0">
-          <span><b>MP3変換</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">16kHz mono 32kbps・速度とサイズのバランスが最良</span></span>
+          <span><b>MP3変換</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">16kHz mono 96kbps・速度とサイズのバランスが最良</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
           <input type="radio" name="p2-audio-mode" value="flac_fast" style="margin-top:3px;flex-shrink:0">
@@ -449,6 +501,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
         <h3 id="ph4-clips-count"></h3>
         <div style="display:flex;gap:8px;align-items:center">
           <span class="sel-info" id="ph4-sel-info"></span>
+          <button class="btn-secondary" id="ph4-selall-btn" onclick="toggleSelectAll()">全選択</button>
           <button class="btn-studio" id="ph4-studio-btn" onclick="openInStudio()">🎬 Studio で確認</button>
           <button class="btn-danger" id="ph4-cancel-btn" onclick="cancelPhase4()" hidden>中止</button>
           <button class="btn-render" id="ph4-render-btn" onclick="runPhase4()">▶ レンダリング</button>
@@ -466,13 +519,53 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   </div>
 </div>
 
+<!-- ────────────────── PHASE 5: Concat ────────────────── -->
+<div class="phase" id="ph5">
+  <div class="phase-hd" onclick="togglePhase('ph5')">
+    <div class="phase-num">5</div>
+    <div class="phase-title">クリップ結合</div>
+    <span class="phase-badge" id="ph5-badge">待機</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="phase-body">
+    <div class="field">
+      <label>結合するクリップを追加（ドラッグで順序変更）</label>
+      <div style="display:flex;gap:6px;margin-bottom:8px;margin-top:4px">
+        <select id="p5-clip-select" style="flex:1"><option value="">-- クリップを選択 --</option></select>
+        <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p5-clip-select','rendered_clips')">↺</button>
+        <button class="btn-secondary" onclick="addConcatItem()">＋ 追加</button>
+      </div>
+      <div class="concat-list" id="p5-concat-list">
+        <div class="concat-empty" id="p5-concat-empty">クリップを追加してください</div>
+      </div>
+    </div>
+    <div class="phase-actions">
+      <button class="btn-render" id="ph5-btn" onclick="runConcat()">▶ 結合実行</button>
+    </div>
+    <div id="ph5-result" hidden></div>
+    <div id="ph5-error" class="error-box" hidden></div>
+  </div>
+</div>
+
 </main>
 
 <script>
 // ── Color themes ──────────────────────────────────────────────────────────
 const CLIP_THEMES = {
   yumeno: 'yumeno',
+  yumeno2: 'yumeno2',
   heisei_girl: '平成女児',
+};
+
+const CAPTION_FONTS = {
+  mochiy: 'Mochiy Pop',
+  rounded: '丸ゴ太字',
+  gothic: 'Noto極太',
+  pop: 'M PLUSポップ',
+  impact: 'デラ極太',
+  retro: 'ロックンロール',
+  mincho: '明朝デコ',
+  comment: 'コメント風',
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -622,6 +715,7 @@ async function initAllFileLists() {
     refreshFiles('p4-trans', 'transcription'),
     refreshFiles('p3-chat', 'chat'),
     refreshFiles('p4-clips', 'clips'),
+    refreshFiles('p5-clip-select', 'rendered_clips'),
   ]);
 }
 
@@ -634,8 +728,8 @@ async function propagate(video, transcription) {
     await refreshFiles('p4-video', 'video');
     const s2 = document.getElementById('p2-video');
     const s4v = document.getElementById('p4-video');
-    if (!s2.value) s2.value = name;
-    if (!s4v.value) s4v.value = name;
+    s2.value = name;
+    s4v.value = name;
   }
   if (transcription) {
     const name = transcription.split('/').pop().split('\\').pop();
@@ -644,8 +738,8 @@ async function propagate(video, transcription) {
     await refreshFiles('p4-trans', 'transcription');
     const s3 = document.getElementById('p3-trans');
     const s4t = document.getElementById('p4-trans');
-    if (!s3.value) s3.value = name;
-    if (!s4t.value) s4t.value = name;
+    s3.value = name;
+    s4t.value = name;
   }
 }
 
@@ -814,8 +908,8 @@ async function runPhase2() {
         await refreshFiles('p4-trans', 'transcription');
         const s3 = document.getElementById('p3-trans');
         const s4 = document.getElementById('p4-trans');
-        if (!s3.value) s3.value = name;
-        if (!s4.value) s4.value = name;
+        s3.value = name;
+        s4.value = name;
         const chip = document.getElementById('ph2-result');
         chip.innerHTML = `<span class="result-chip">📄 ${escHtml(name)}</span>`;
         chip.hidden = false;
@@ -885,7 +979,7 @@ async function runPhase3() {
         if (clipsFileName) {
           await refreshFiles('p4-clips', 'clips');
           const s4c = document.getElementById('p4-clips');
-          if (!s4c.value) s4c.value = clipsFileName;
+          s4c.value = clipsFileName;
         }
         loadClipsIntoGrid(msg.clips);
         setPhaseState(3, 'done');
@@ -1065,33 +1159,71 @@ function formatTime(sec) {
 }
 function parseSec(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 function durStr(s, e) { const d = Math.round(e - s); return d >= 60 ? `${Math.floor(d/60)}分${d%60}秒` : `${d}秒`; }
+function secToHMS(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+function hmsToSec(str) {
+  const parts = str.trim().split(':').map(Number);
+  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + (parts[2]||0);
+  if (parts.length === 2) return parts[0]*60 + (parts[1]||0);
+  return parseFloat(str) || 0;
+}
+function syncCutIntervals(card) {
+  const clipStart = parseSec(card.querySelector('.t-start').value);
+  const clipEnd   = parseSec(card.querySelector('.t-end').value);
+  const cuts = Array.from(card.querySelectorAll('.ki-row')).map(row => ({
+    startSec: hmsToSec(row.querySelector('.ki-start').value),
+    endSec:   hmsToSec(row.querySelector('.ki-end').value),
+  })).filter(iv => iv.endSec > iv.startSec);
+  card.dataset.cutIntervals = JSON.stringify(cuts.length > 0 ? cuts : null);
+  const totalCut = cuts.reduce((s, iv) => s + (iv.endSec - iv.startSec), 0);
+  const played = (clipEnd - clipStart) - totalCut;
+  const tag = card.querySelector('.dur-tag');
+  if (tag) tag.textContent = durStr(0, played) + (cuts.length > 0 ? ' ✂' : '');
+}
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function loadClipsIntoGrid(clips) {
   const grid = document.getElementById('ph4-clips-grid');
   grid.innerHTML = '';
-  clips.forEach((c, i) => grid.appendChild(buildClipCard(c, i)));
+  clips.forEach((c, i) => {
+    if (!c.verticalMode || c.verticalMode === 'crop') c.verticalMode = 'split';
+    grid.appendChild(buildClipCard(c, i));
+  });
   document.getElementById('ph4-clips-count').textContent = `クリップ一覧 (${clips.length} 件)`;
   document.getElementById('ph4-clips-section').hidden = false;
   updateSelInfo();
+}
+
+function syncAllSliders(sliderClass, valClass, value, fmt) {
+  document.querySelectorAll('#ph4-clips-grid .clip-card').forEach(c => {
+    const s = c.querySelector(sliderClass);
+    const v = c.querySelector(valClass);
+    if (s) s.value = value;
+    if (v) v.textContent = fmt(value);
+  });
 }
 
 function buildClipCard(clip, idx) {
   const card = document.createElement('div');
   card.className = 'clip-card';
   // Preserve fields that have no UI controls
-  card.dataset.keepIntervals = JSON.stringify(clip.keepIntervals || null);
+  card.dataset.cutIntervals = JSON.stringify(clip.cutIntervals || null);
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
   card.dataset.theme = clip.theme || 'yumeno';
+  card.dataset.captionEffect = clip.captionEffect || '';
 
   // Auto-check vertical when source is portrait (unless the clip explicitly set vertical)
   const effectiveSrcAspect = phaseOut.srcAspect || 16/9;
   const defaultVertical = clip.vertical != null ? clip.vertical : (effectiveSrcAspect < 1);
 
-  // Duration label — for keepIntervals clips use actual played duration
-  const playedDur = clip.keepIntervals
-    ? clip.keepIntervals.reduce((s, iv) => s + (iv.endSec - iv.startSec), 0)
-    : (clip.end_sec - clip.start_sec);
+  const cutDur = (clip.cutIntervals || []).reduce((s, iv) => s + (iv.endSec - iv.startSec), 0);
+  const playedDur = (clip.end_sec - clip.start_sec) - cutDur;
+  const initCutIntervals = clip.cutIntervals || [];
 
   card.innerHTML = `
     <div class="clip-top">
@@ -1102,13 +1234,37 @@ function buildClipCard(clip, idx) {
       <input type="number" class="t-start" value="${clip.start_sec.toFixed(1)}" step="0.5" min="0">
       <span>→</span>
       <input type="number" class="t-end" value="${clip.end_sec.toFixed(1)}" step="0.5" min="0">
-      <span class="dur-tag">${durStr(0, playedDur)}${clip.keepIntervals ? ' ✂' : ''}</span>
+      <span class="dur-tag">${durStr(0, playedDur)}${clip.cutIntervals?.length ? ' ✂' : ''}</span>
+    </div>
+    <div class="ki-editor" style="margin-top:6px;padding:6px 0;border-top:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;color:var(--muted);font-weight:600">✂ カット区間 <span style="font-weight:400;opacity:0.7">(HH:MM:SS)</span></span>
+        <button class="ki-add-btn" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);cursor:pointer">+ 追加</button>
+      </div>
+      <div class="ki-rows">
+        ${initCutIntervals.map((iv) => `
+          <div class="ki-row" style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+            <input class="ki-start" value="${secToHMS(iv.startSec)}" style="width:74px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text)">
+            <span style="font-size:11px;color:var(--muted)">→</span>
+            <input class="ki-end" value="${secToHMS(iv.endSec)}" style="width:74px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text)">
+            <button class="ki-del-btn" style="font-size:11px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--red);cursor:pointer">✕</button>
+          </div>
+        `).join('')}
+      </div>
     </div>
     <div class="clip-crop-row" style="margin-top:6px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
         <span>小</span><span>字幕サイズ: <b class="caption-size-val">${clip.captionFontSize ?? 96}</b>px</span><span>大</span>
       </div>
       <input type="range" class="clip-caption-size" min="48" max="160" step="4" value="${clip.captionFontSize ?? 96}" style="width:100%">
+    </div>
+    <div class="clip-crop-row" style="margin-top:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+        <span>字幕フォント</span>
+      </div>
+      <select class="clip-caption-font" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
+        ${Object.entries(CAPTION_FONTS).map(([k, v]) => `<option value="${k}" ${(clip.captionFont || 'mochiy') === k ? 'selected' : ''}>${escHtml(v)}</option>`).join('')}
+      </select>
     </div>
     <div class="clip-crop-row" style="margin-top:6px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
@@ -1128,31 +1284,58 @@ function buildClipCard(clip, idx) {
     <div class="clip-vert-options" style="display:${clip.vertical ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px">
       <div style="display:flex;gap:14px;font-size:12px;color:var(--muted)">
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" ${(!clip.verticalMode || clip.verticalMode === 'crop') ? 'checked' : ''}>
+          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" ${clip.verticalMode === 'crop' ? 'checked' : ''}>
           クロップ（人物中心）
         </label>
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="split" ${clip.verticalMode === 'split' ? 'checked' : ''}>
+          <input type="radio" class="clip-vmode" name="vmode-${idx}" value="split" ${(!clip.verticalMode || clip.verticalMode === 'split') ? 'checked' : ''}>
           二段構成（全体＋顔）
         </label>
       </div>
       <div class="clip-crop-row">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 90}</b>%</span><span>右 →</span>
+          <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 93}</b>%</span><span>右 →</span>
         </div>
-        <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 90}" style="width:100%">
+        <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 93}" style="width:100%">
       </div>
       <div class="clip-crop-row">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>縮小</span><span>zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? ((!clip.verticalMode || clip.verticalMode === 'crop') ? 1.0 : 1.5)}</b>x</span><span>拡大</span>
+          <span>縮小</span><span>zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 2.0}</b>x</span><span>拡大</span>
         </div>
-        <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.1" value="${clip.faceCamZoom ?? ((!clip.verticalMode || clip.verticalMode === 'crop') ? 1.0 : 1.5)}" style="width:100%">
+        <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.01" value="${clip.faceCamZoom ?? 2.0}" style="width:100%">
       </div>
       <div class="clip-crop-row">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 50}</b>%</span><span>下 ↓</span>
+          <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 100}</b>%</span><span>下 ↓</span>
         </div>
-        <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 50}" style="width:100%">
+        <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 100}" style="width:100%">
+      </div>
+      <div class="clip-main-options" style="display:${(!clip.verticalMode || clip.verticalMode === 'split') ? 'flex' : 'none'};flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>上段 1</span><span>上下比率: <b class="split-top-ratio-val">${clip.splitTopRatio ?? 5}</b> : <b class="split-bottom-ratio-val">${10 - (clip.splitTopRatio ?? 5)}</b></span><span>9 上段</span>
+          </div>
+          <input type="range" class="clip-split-top-ratio" min="1" max="9" step="1" value="${clip.splitTopRatio ?? 5}" style="width:100%">
+        </div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600">▲ 上段（全体映像）</div>
+        <div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>縮小</span><span>上段zoom: <b class="main-zoom-val">${clip.mainZoom ?? 1.0}</b>x</span><span>拡大</span>
+          </div>
+          <input type="range" class="clip-main-zoom" min="0.5" max="8" step="0.01" value="${clip.mainZoom ?? 1.0}" style="width:100%">
+        </div>
+        <div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>← 左</span><span>上段水平: <b class="main-crop-x-val">${clip.mainCropX ?? 50}</b>%</span><span>右 →</span>
+          </div>
+          <input type="range" class="clip-main-crop-x" min="0" max="100" step="1" value="${clip.mainCropX ?? 50}" style="width:100%">
+        </div>
+        <div class="clip-crop-row">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+            <span>↑ 上</span><span>上段垂直: <b class="main-crop-y-val">${clip.mainCropY ?? 50}</b>%</span><span>下 ↓</span>
+          </div>
+          <input type="range" class="clip-main-crop-y" min="0" max="100" step="1" value="${clip.mainCropY ?? 50}" style="width:100%">
+        </div>
       </div>
     </div>
   `;
@@ -1170,22 +1353,91 @@ function buildClipCard(clip, idx) {
   vertCb.addEventListener('change', () => { vertOptions.style.display = vertCb.checked ? 'flex' : 'none'; });
 
   const captionSizeSlider = card.querySelector('.clip-caption-size');
-  const captionSizeVal = card.querySelector('.caption-size-val');
-  captionSizeSlider.addEventListener('input', () => { captionSizeVal.textContent = captionSizeSlider.value; });
+  captionSizeSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-caption-size', '.caption-size-val', captionSizeSlider.value, v => v);
+  });
 
   const cropSlider = card.querySelector('.clip-crop-x');
-  const cropVal = card.querySelector('.crop-x-val');
-  cropSlider.addEventListener('input', () => { cropVal.textContent = cropSlider.value; });
+  cropSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-crop-x', '.crop-x-val', cropSlider.value, v => v);
+  });
 
   const faceZoomSlider = card.querySelector('.clip-face-zoom');
-  const faceZoomVal = card.querySelector('.face-zoom-val');
-  faceZoomSlider.addEventListener('input', () => { faceZoomVal.textContent = parseFloat(faceZoomSlider.value).toFixed(1); });
+  faceZoomSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-face-zoom', '.face-zoom-val', faceZoomSlider.value, v => parseFloat(v).toFixed(2));
+  });
 
   const faceYSlider = card.querySelector('.clip-face-y');
-  const faceYVal = card.querySelector('.face-y-val');
-  faceYSlider.addEventListener('input', () => { faceYVal.textContent = faceYSlider.value; });
+  faceYSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-face-y', '.face-y-val', faceYSlider.value, v => v);
+  });
+
+  const splitTopRatioSlider = card.querySelector('.clip-split-top-ratio');
+  splitTopRatioSlider.addEventListener('input', () => {
+    const v = parseInt(splitTopRatioSlider.value, 10);
+    syncAllSliders('.clip-split-top-ratio', '.split-top-ratio-val', v, v => v);
+    card.querySelectorAll('.split-bottom-ratio-val').forEach(el => { el.textContent = 10 - v; });
+  });
+
+  const mainZoomSlider = card.querySelector('.clip-main-zoom');
+  mainZoomSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-main-zoom', '.main-zoom-val', mainZoomSlider.value, v => parseFloat(v).toFixed(2));
+  });
+
+  const mainCropXSlider = card.querySelector('.clip-main-crop-x');
+  mainCropXSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-main-crop-x', '.main-crop-x-val', mainCropXSlider.value, v => v);
+  });
+
+  const mainCropYSlider = card.querySelector('.clip-main-crop-y');
+  mainCropYSlider.addEventListener('input', () => {
+    syncAllSliders('.clip-main-crop-y', '.main-crop-y-val', mainCropYSlider.value, v => v);
+  });
+
+  // vmode切替時に上段スライダーの表示を制御
+  const mainOptions = card.querySelector('.clip-main-options');
+  card.querySelectorAll('.clip-vmode').forEach(r => {
+    r.addEventListener('change', () => {
+      mainOptions.style.display = r.value === 'split' && r.checked ? 'flex' : mainOptions.style.display;
+      if (r.checked) mainOptions.style.display = r.value === 'split' ? 'flex' : 'none';
+    });
+  });
 
   card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
+
+  // ── cutIntervals editor ──────────────────────────────────────────────────
+  const kiRows = card.querySelector('.ki-rows');
+  let _kiTimer = null;
+  kiRows.addEventListener('input', e => {
+    if (e.target.classList.contains('ki-start') || e.target.classList.contains('ki-end')) {
+      clearTimeout(_kiTimer);
+      _kiTimer = setTimeout(() => syncCutIntervals(card), 400);
+    }
+  });
+  kiRows.addEventListener('click', e => {
+    if (e.target.classList.contains('ki-del-btn')) {
+      e.target.closest('.ki-row').remove();
+      syncCutIntervals(card);
+    }
+  });
+  card.querySelector('.ki-add-btn').addEventListener('click', () => {
+    const clipStart = parseSec(card.querySelector('.t-start').value);
+    const clipEnd   = parseSec(card.querySelector('.t-end').value);
+    const mid = (clipStart + clipEnd) / 2;
+    const startSec = Math.max(clipStart, mid - 5);
+    const endSec   = Math.min(clipEnd,   mid + 5);
+    const row = document.createElement('div');
+    row.className = 'ki-row';
+    row.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:3px';
+    row.innerHTML = `
+      <input class="ki-start" value="${secToHMS(startSec)}" style="width:74px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text)">
+      <span style="font-size:11px;color:var(--muted)">→</span>
+      <input class="ki-end" value="${secToHMS(endSec)}" style="width:74px;font-size:11px;font-family:monospace;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text)">
+      <button class="ki-del-btn" style="font-size:11px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--red);cursor:pointer">✕</button>
+    `;
+    kiRows.appendChild(row);
+    syncCutIntervals(card);
+  });
 
   return card;
 }
@@ -1195,35 +1447,47 @@ function updateSelInfo() {
   const all = document.querySelectorAll('#ph4-clips-grid .clip-card').length;
   const sel = document.querySelectorAll('#ph4-clips-grid .clip-cb:checked').length;
   document.getElementById('ph4-sel-info').textContent = `${sel} / ${all} 選択`;
+  const btn = document.getElementById('ph4-selall-btn');
+  if (btn) btn.textContent = sel === all && all > 0 ? '全解除' : '全選択';
+}
+
+function toggleSelectAll() {
+  const cbs = document.querySelectorAll('#ph4-clips-grid .clip-cb');
+  const allChecked = Array.from(cbs).every(cb => cb.checked);
+  cbs.forEach(cb => {
+    cb.checked = !allChecked;
+    cb.closest('.clip-card').classList.toggle('sel', !allChecked);
+  });
+  updateSelInfo();
 }
 
 function readGridClips() {
   const globalSrcAspect = parseFloat(document.getElementById('p4-src-orientation').value) || phaseOut.srcAspect || null;
   return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => {
-    const keepIntervals = JSON.parse(c.dataset.keepIntervals || 'null');
+    const cutIntervals = JSON.parse(c.dataset.cutIntervals || 'null');
     const cardSrcAspect = parseFloat(c.dataset.srcAspect) || globalSrcAspect;
     const clip = {
       title: c.querySelector('.clip-title-input').value,
       start_sec: parseSec(c.querySelector('.t-start').value),
       end_sec:   parseSec(c.querySelector('.t-end').value),
       vertical: c.querySelector('.clip-vertical').checked,
-      verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'crop',
+      verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'split',
       captionFontSize: parseInt(c.querySelector('.clip-caption-size').value, 10),
+      captionFont: c.querySelector('.clip-caption-font').value,
+      captionEffect: c.dataset.captionEffect || undefined,
       cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
       faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
       faceCamY: parseInt(c.querySelector('.clip-face-y').value, 10),
+      splitTopRatio: parseInt(c.querySelector('.clip-split-top-ratio').value, 10),
+      mainZoom: parseFloat(c.querySelector('.clip-main-zoom').value),
+      mainCropX: parseInt(c.querySelector('.clip-main-crop-x').value, 10),
+      mainCropY: parseInt(c.querySelector('.clip-main-crop-y').value, 10),
       theme: c.querySelector('.clip-theme').value,
       reason: '',
     };
-    if (keepIntervals) {
-      // Adjust first/last interval boundaries to match user-edited start/end times,
-      // so extended ranges play with correct captions while preserving silence cuts within.
-      const adjusted = keepIntervals.map(iv => ({ ...iv }));
-      if (Math.abs(clip.start_sec - adjusted[0].startSec) > 0.05)
-        adjusted[0].startSec = clip.start_sec;
-      if (Math.abs(clip.end_sec - adjusted[adjusted.length - 1].endSec) > 0.05)
-        adjusted[adjusted.length - 1].endSec = clip.end_sec;
-      clip.keepIntervals = adjusted;
+    if (cutIntervals) {
+      const filtered = cutIntervals.filter(iv => iv.startSec < clip.end_sec && iv.endSec > clip.start_sec);
+      if (filtered.length > 0) clip.cutIntervals = filtered;
     }
     if (cardSrcAspect) clip.srcAspect = cardSrcAspect;
     return clip;
@@ -1277,6 +1541,90 @@ async function openInStudio() {
   } finally {
     btn.disabled = false;
     btn.textContent = '🎬 Studio で確認';
+  }
+}
+
+// ── Phase 5: Concat ────────────────────────────────────────────────────────
+
+let _concatDragSrc = null;
+
+function makeConcatItem(name) {
+  const item = document.createElement('div');
+  item.className = 'concat-item';
+  item.draggable = true;
+  item.dataset.filename = name;
+  item.innerHTML =
+    `<span class="concat-handle">≡</span>` +
+    `<span class="concat-name">${escHtml(name)}</span>` +
+    `<button class="concat-remove" onclick="this.closest('.concat-item').remove();updateConcatEmpty()">✕</button>`;
+
+  item.addEventListener('dragstart', e => {
+    _concatDragSrc = item;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', name);
+    requestAnimationFrame(() => item.classList.add('dragging'));
+  });
+  item.addEventListener('dragend', () => {
+    item.classList.remove('dragging');
+    _concatDragSrc = null;
+    document.querySelectorAll('.concat-item').forEach(el => el.classList.remove('drag-over'));
+  });
+  item.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!_concatDragSrc || _concatDragSrc === item) return;
+    const rect = item.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    item.parentNode.insertBefore(_concatDragSrc, after ? item.nextSibling : item);
+  });
+
+  return item;
+}
+
+function addConcatItem() {
+  const sel = document.getElementById('p5-clip-select');
+  if (!sel.value) return;
+  document.getElementById('p5-concat-list').appendChild(makeConcatItem(sel.value));
+  updateConcatEmpty();
+}
+
+function updateConcatEmpty() {
+  const hasItems = document.querySelectorAll('#p5-concat-list .concat-item').length > 0;
+  document.getElementById('p5-concat-empty').style.display = hasItems ? 'none' : '';
+}
+
+async function runConcat() {
+  const filenames = Array.from(document.querySelectorAll('#p5-concat-list .concat-item'))
+    .map(el => el.dataset.filename);
+  if (filenames.length < 2) { alert('結合するクリップを2つ以上追加してください'); return; }
+
+  document.getElementById('ph5-result').hidden = true;
+  document.getElementById('ph5-error').hidden = true;
+  setPhaseState(5, 'running');
+  setBtnLoading('ph5-btn', true, '結合中...');
+
+  try {
+    const res = await fetch('/api/concat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filenames }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    const { filename } = await res.json();
+
+    setPhaseState(5, 'done');
+    const result = document.getElementById('ph5-result');
+    result.hidden = false;
+    result.innerHTML = `<div class="dl-list"><div class="dl-item"><span class="dl-name">${escHtml(filename)}</span><a class="btn-dl" href="/api/clips/${encodeURIComponent(filename)}" download="${escHtml(filename)}">ダウンロード</a></div></div>`;
+    await refreshFiles('p5-clip-select', 'rendered_clips');
+  } catch (err) {
+    setPhaseState(5, 'error');
+    const errEl = document.getElementById('ph5-error');
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  } finally {
+    setBtnLoading('ph5-btn', false);
+    document.getElementById('ph5-btn').textContent = '▶ 結合実行';
   }
 }
 
@@ -1384,8 +1732,72 @@ function showUploadToast(name) {
   };
 }
 
+// ── Settings ───────────────────────────────────────────────────────────────
+
+async function fetchSettingsStatus() {
+  const res = await fetch('/api/settings');
+  return res.json();
+}
+
+async function refreshSettingsBanner() {
+  let status;
+  try {
+    status = await fetchSettingsStatus();
+  } catch {
+    return;
+  }
+  const missing = [];
+  if (!status.anthropic) missing.push('Anthropic');
+  if (!status.groq) missing.push('Groq');
+  const banner = document.getElementById('settings-banner');
+  if (missing.length) {
+    document.getElementById('settings-banner-text').textContent =
+      `${missing.join('・')} の API キーが未設定です。設定してから実行してください。`;
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
+  return status;
+}
+
+async function openSettings() {
+  const overlay = document.getElementById('settings-overlay');
+  overlay.style.display = 'flex';
+  const status = await fetchSettingsStatus();
+  const statusText = (label, ok) => `${label}: ${ok ? '設定済み ✓' : '未設定'}`;
+  document.getElementById('settings-modal-status').textContent =
+    [statusText('Anthropic', status.anthropic), statusText('Groq', status.groq), statusText('Gemini', status.gemini)].join(' / ');
+  document.getElementById('settings-anthropic').value = '';
+  document.getElementById('settings-groq').value = '';
+  document.getElementById('settings-gemini').value = '';
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').style.display = 'none';
+}
+
+async function saveSettings() {
+  const body = {
+    anthropic_api_key: document.getElementById('settings-anthropic').value || null,
+    groq_api_key: document.getElementById('settings-groq').value || null,
+    gemini_api_key: document.getElementById('settings-gemini').value || null,
+  };
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    document.getElementById('settings-modal-status').textContent = '保存に失敗しました';
+    return;
+  }
+  await refreshSettingsBanner();
+  closeSettings();
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 initAllFileLists();
+refreshSettingsBanner();
 </script>
 </body>
 </html>

@@ -4,17 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio with Groq Whisper, uses Claude CLI to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
+Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio with Groq Whisper, uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # set GROQ_API_KEY
+cp .env.example .env   # set ANTHROPIC_API_KEY and GROQ_API_KEY
 cd remotion && npm install
 ```
 
-Required system tools: `yt-dlp`, `ffmpeg`, `ffprobe`, `claude` (CLI), `npx`
+Required system tools: `yt-dlp`, `ffmpeg`, `ffprobe`, `npx`
+
+API keys (`ANTHROPIC_API_KEY`, `GROQ_API_KEY`, optionally `GEMINI_API_KEY`) can also be
+set from the in-app settings screen (⚙ 設定) instead of `.env` — see `web/config.py`.
+That's the path packaged/distributed installs use (see `packaging/windows/`); `.env`
+remains the dev-machine convenience.
 
 ## Running the app
 
@@ -30,7 +35,8 @@ The project has three layers that communicate through the filesystem and subproc
 
 ### Python backend (`web/`)
 - `web/app.py` — FastAPI server. Manages in-memory jobs (dict keyed by UUID). Each job runs `pipeline.py` in a thread pool executor. The frontend polls `/api/jobs/{jid}/events` via SSE.
-- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `audio_chunking_code.py`), `suggest_clips_from_result` (calls `claude -p ... --output-format text` as subprocess), `render_clip` (calls `npx remotion render`).
+- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `audio_chunking_code.py`), `suggest_clips_from_result` (calls the Anthropic API directly via the `anthropic` SDK), `render_clip` (calls `npx remotion render`).
+- `web/config.py` — Persists API keys entered via the settings screen to `config.json` under `get_data_dir()` (repo root in dev, `%LOCALAPPDATA%\Kirinuki` on a packaged Windows install), and applies them to `os.environ` on top of `.env`.
 
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).
@@ -48,7 +54,7 @@ URL → yt-dlp → .mp4 (downloads/)
             ↓
       Groq Whisper → *_full.json (transcriptions/)
             ↓
-      Claude CLI → clips_*.json (transcriptions/)
+      Anthropic API → clips_*.json (transcriptions/)
             ↓
       npx remotion render → *.mp4 (clips/)
 ```
@@ -60,10 +66,10 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `vertical` / `verticalMode` — `"crop"` (full-height video cropped to portrait) or `"split"` (full-width video on top + zoomed face-cam circle below)
 - `cropX` — horizontal crop position 0–100%
 - `faceCamZoom`, `faceCamY` — for split mode face-cam
-- `keepIntervals` — list of `{startSec, endSec}` for silence-cut clips (gaps are jump-cut out)
+- `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
 - `captions` — list of `{text, startMs, endMs}` relative to clip start
 
-Old-format split clips using `_concat_group` / `_concat_index` are automatically migrated to `keepIntervals` by `pipeline.merge_split_clips()`.
+Old-format split clips using `_concat_group` / `_concat_index` are automatically migrated to `cutIntervals` by `pipeline.merge_split_clips()`.
 
 ## Important conventions
 
@@ -71,5 +77,6 @@ Old-format split clips using `_concat_group` / `_concat_index` are automatically
 - Transcriptions are saved to `transcriptions/` (root), not `web/transcriptions/`.
 - The `web/transcriptions/` directory contains legacy files; new files go to project root `transcriptions/`.
 - Remotion renders use `--public-dir` pointing to the video's parent directory so `staticFile(videoSrc)` resolves correctly.
-- The `claude` CLI must be authenticated and available in PATH — `suggest_clips_from_result()` calls it directly as a subprocess.
+- `suggest_clips_from_result()` requires `ANTHROPIC_API_KEY` (via `.env` or the settings screen) — no `claude` CLI or login is needed.
 - Job state is in-memory only; server restart loses all jobs.
+- On Windows, subprocess calls (yt-dlp/ffmpeg/ffprobe/npx/npm) pass `creationflags=subprocess.CREATE_NO_WINDOW` (see `config.no_window_kwargs()`) so a packaged install never flashes a console window.
