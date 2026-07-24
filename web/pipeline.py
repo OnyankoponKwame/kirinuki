@@ -41,10 +41,14 @@ class _LogInterceptor:
         handler = getattr(_tl, "handler", None)
         if handler and text.strip():
             handler(text.rstrip())
-        _original_stdout.write(text)
+        # sys.__stdout__ is None under pythonw.exe (no console) — there's nowhere
+        # to forward the write, but the job-log handler above already got it.
+        if _original_stdout:
+            _original_stdout.write(text)
 
     def flush(self) -> None:
-        _original_stdout.flush()
+        if _original_stdout:
+            _original_stdout.flush()
 
 
 sys.stdout = _LogInterceptor()

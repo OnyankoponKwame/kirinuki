@@ -34,6 +34,19 @@ START_TIMEOUT_SEC = 30.0
 
 LOG_DIR = Path(os.getenv("LOCALAPPDATA") or str(APP_ROOT)) / "Kirinuki"
 LOG_PATH = LOG_DIR / "launcher.log"
+SERVER_LOG_PATH = LOG_DIR / "server.log"
+
+
+def _redirect_streams() -> None:
+    """pythonw.exe has no console, so sys.stdout/sys.stderr (and sys.__stdout__/
+    sys.__stderr__) are None — not a dummy stream, actually None. Anything that
+    calls e.g. sys.stdout.isatty() (uvicorn's own logging setup does, on startup)
+    crashes immediately. Point them at a real file before any of that runs."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    stream = open(SERVER_LOG_PATH, "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = sys.__stdout__ = sys.__stderr__ = stream
 
 
 def _log(message: str) -> None:
@@ -74,6 +87,7 @@ def run_server() -> None:
 
 
 def main() -> None:
+    _redirect_streams()
     _log("launcher starting")
     errors: list[BaseException] = []
 
