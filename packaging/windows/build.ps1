@@ -18,6 +18,23 @@
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell does NOT turn a failing native command's exit code into a terminating
+# error by itself — `$ErrorActionPreference = "Stop"` only covers cmdlets. Every `&`
+# invocation of pip/npm/npx below must be wrapped in this, or a failed install (e.g.
+# a dependency that didn't land in site-packages/node_modules) silently reports the
+# whole step as successful while shipping a broken app.
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory)] [string] $Description,
+        [Parameter(Mandatory)] [scriptblock] $ScriptBlock
+    )
+    Write-Host "  -> $Description"
+    & $ScriptBlock
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE"
+    }
+}
+
 $RepoRoot   = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $DistRoot   = Join-Path $RepoRoot "dist"
 $StageRoot  = Join-Path $DistRoot "Kirinuki"
@@ -59,9 +76,18 @@ Add-Content $pthFile.FullName "`nLib\site-packages"
 
 $getPip = Join-Path $DownloadDir "get-pip.py"
 Download-File $GetPipUrl $getPip
-& "$pythonDir\python.exe" $getPip --no-warn-script-location
+Invoke-Checked "bootstrap pip" { & "$pythonDir\python.exe" $getPip --no-warn-script-location }
 
-& "$pythonDir\python.exe" -m pip install --no-warn-script-location -r "$RepoRoot\requirements.txt"
+Invoke-Checked "pip install -r requirements.txt" {
+    & "$pythonDir\python.exe" -m pip install --no-warn-script-location -r "$RepoRoot\requirements.txt"
+}
+
+# pip succeeding is not proof the packages actually landed where Python will look for
+# them (embeddable-Python site-packages wiring is easy to get subtly wrong) — verify.
+$uvicornCheck = Join-Path $pythonDir "Lib\site-packages\uvicorn"
+if (-not (Test-Path $uvicornCheck)) {
+    throw "uvicorn missing from $uvicornCheck after pip install — site-packages wiring or the install itself failed"
+}
 
 # ── 2. Portable Node.js + Remotion npm install ────────────────────────────────
 Write-Host "== Node.js =="
@@ -86,15 +112,25 @@ foreach ($devOnly in @("web\transcriptions", "downloads", "transcriptions")) {
 }
 Copy-Item -Path (Join-Path $PSScriptRoot "launcher.py") -Destination (Join-Path $AppDir "launcher.py") -Force
 
-$nodeExe = Join-Path $AppDir "node\node.exe"
-$npmCmd  = Join-Path $AppDir "node\npm.cmd"
+$npmCmd = Join-Path $AppDir "node\npm.cmd"
+$npxCmd = Join-Path $AppDir "node\npx.cmd"
 Push-Location (Join-Path $AppDir "remotion")
 try {
-    & $npmCmd install
-    # Pre-download Remotion's headless Chrome build so the packaged app doesn't need
-    # network access on first render. Verify this exact command against the Remotion
-    # CLI version pinned in remotion/package.json — `npx remotion browser --help`.
-    & (Join-Path $AppDir "node\npx.cmd") remotion browser ensure
+    Invoke-Checked "npm install (remotion)" { & $npmCmd install }
+
+    $remotionCheck = Join-Path $AppDir "remotion\node_modules\remotion"
+    if (-not (Test-Path $remotionCheck)) {
+        throw "remotion missing from $remotionCheck after npm install"
+    }
+
+    # Best-effort pre-download of Remotion's headless Chrome build so the packaged
+    # app doesn't need network access on first render. Non-fatal (and the exact
+    # subcommand unverified against the pinned Remotion version) — worst case,
+    # Remotion downloads it lazily on the first real render instead.
+    & $npxCmd remotion browser ensure
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "npx remotion browser ensure failed (exit $LASTEXITCODE) — continuing without a pre-downloaded browser; verify the command against this Remotion version if first render fails offline."
+    }
 } finally {
     Pop-Location
 }
