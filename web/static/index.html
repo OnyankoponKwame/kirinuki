@@ -611,10 +611,10 @@ function appendLog(consoleId, text) {
 }
 
 // ── Transcription model toggle ─────────────────────────────────────────────
+// Both remaining backends (ElevenLabs, Groq) run preprocess_audio() with the chosen
+// audio_mode before transcribing, so the selector always applies — nothing to hide.
 function onTransModelChange() {
-  const model = document.querySelector('input[name="p2-trans-model"]:checked')?.value;
-  const noChunking = model === 'elevenlabs';
-  document.getElementById('p2-audio-mode-wrap').style.display = noChunking ? 'none' : '';
+  document.getElementById('p2-audio-mode-wrap').style.display = '';
 }
 
 // ── Transcription progress parser ──────────────────────────────────────────
