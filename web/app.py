@@ -44,6 +44,51 @@ _active_job: str | None = None
 _studio_proc: subprocess.Popen | None = None
 
 
+# ── Heartbeat (Auto-shutdown) ────────────────────────────────────────────────
+import os
+import signal
+import time
+
+last_heartbeat_time = time.time()
+
+@app.post("/api/heartbeat")
+async def heartbeat():
+    global last_heartbeat_time
+    last_heartbeat_time = time.time()
+    return {"status": "ok"}
+
+async def _monitor_heartbeat():
+    # パッケージ環境（KIRINUKI_BIN_DIR環境変数あり）の場合のみ、自動シャットダウンを動かす
+    if not os.getenv("KIRINUKI_BIN_DIR"):
+        return
+
+    # 初回起動時はブラウザが開いて読み込まれるまでの猶予期間（60秒）を設ける
+    await asyncio.sleep(60)
+
+    while True:
+        await asyncio.sleep(5)
+        # 現在進行中のジョブがあるか確認
+        has_active_jobs = any(job.get("status") == "running" for job in jobs.values())
+        if has_active_jobs:
+            global last_heartbeat_time
+            last_heartbeat_time = time.time()
+            continue
+
+        # 最後のハートビートから25秒以上経過していたらシャットダウン
+        if time.time() - last_heartbeat_time > 25.0:
+            print("No active clients detected (heartbeat lost). Shutting down server...")
+            try:
+                os.kill(os.getpid(), signal.SIGINT)
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+            os._exit(0)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_monitor_heartbeat())
+
+
 def _new_job(req: "StartReq") -> str:
     jid = uuid.uuid4().hex[:8]
     jobs[jid] = {
