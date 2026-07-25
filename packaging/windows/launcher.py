@@ -151,7 +151,7 @@ def main() -> None:
                         [
                             "yt-dlp",
                             "--cookies-from-browser", "chrome",
-                            "--write-cookies", str(cookies_path),
+                            "--cookies", str(cookies_path),
                             "--skip-download",
                             "https://www.youtube.com"
                         ],
