@@ -227,18 +227,21 @@ def download_video(
     output_dir.mkdir(exist_ok=True)
     template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
+    cmd = [
+        "yt-dlp",
+        "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "--merge-output-format", "mp4",
+        "--write-subs",
+        "--sub-langs", "live_chat",
+        "--newline",
+        "--print", "after_move:filepath",
+        "--cookies-from-browser", "chrome",
+        "-o", template,
+        url,
+    ]
+
     proc = subprocess.Popen(
-        [
-            "yt-dlp",
-            "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
-            "--merge-output-format", "mp4",
-            "--write-subs",
-            "--sub-langs", "live_chat",
-            "--newline",
-            "--print", "after_move:filepath",
-            "-o", template,
-            url,
-        ],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -282,16 +285,19 @@ def download_chat_only(
     output_dir.mkdir(exist_ok=True)
     template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--write-subs",
+        "--sub-langs", "live_chat",
+        "--newline",
+        "--cookies-from-browser", "chrome",
+        "-o", template,
+        url,
+    ]
+
     proc = subprocess.Popen(
-        [
-            "yt-dlp",
-            "--skip-download",
-            "--write-subs",
-            "--sub-langs", "live_chat",
-            "--newline",
-            "-o", template,
-            url,
-        ],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

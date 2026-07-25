@@ -111,6 +111,7 @@ foreach ($devOnly in @("web\transcriptions", "downloads", "transcriptions")) {
     if (Test-Path $p) { Remove-Item -Recurse -Force $p }
 }
 Copy-Item -Path (Join-Path $PSScriptRoot "launcher.py") -Destination (Join-Path $AppDir "launcher.py") -Force
+Copy-Item -Path (Join-Path $PSScriptRoot "icon.ico") -Destination (Join-Path $AppDir "icon.ico") -Force
 
 $npmCmd = Join-Path $AppDir "node\npm.cmd"
 $npxCmd = Join-Path $AppDir "node\npx.cmd"

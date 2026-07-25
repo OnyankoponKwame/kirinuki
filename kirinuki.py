@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,17 +22,20 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
     template = str(output_dir / "%(id)s.%(ext)s")
 
     print(f"Downloading video: {url}")
+    cmd = [
+        "yt-dlp",
+        "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "--merge-output-format", "mp4",
+        "--write-subs",
+        "--sub-langs", "live_chat",
+        "--print", "after_move:filepath",
+        "--cookies-from-browser", "chrome",
+        "-o", template,
+        url,
+    ]
+
     result = subprocess.run(
-        [
-            "yt-dlp",
-            "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
-            "--merge-output-format", "mp4",
-            "--write-subs",
-            "--sub-langs", "live_chat",
-            "--print", "after_move:filepath",
-            "-o", template,
-            url,
-        ],
+        cmd,
         capture_output=True,
         text=True,
     )
