@@ -15,6 +15,7 @@ jobs:
           # Baked into the installer as default API keys (see build.ps1's step 5 and
           # web/config.py) so end users don't need to configure anything. Sourced only
           # from GitHub Actions secrets — never write real keys into a tracked file.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: .\packaging\windows\build.ps1
