@@ -164,6 +164,86 @@ def _read_chat_entries(chat_path: Path, limit_lines: int | None = None) -> list[
     return entries
 
 
+def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> str:
+    """Analyze chat density spikes and generate a report of hyped time ranges."""
+    if not entries:
+        return ""
+
+    # 1. 30秒ごとのバケットに集計
+    max_time = max(t for t, _ in entries)
+    if max_time <= 0:
+        return ""
+
+    num_buckets = int(max_time // window_sec) + 1
+    buckets = [0] * num_buckets
+    bucket_entries = [[] for _ in range(num_buckets)]
+
+    for t, text in entries:
+        idx = min(int(t // window_sec), num_buckets - 1)
+        buckets[idx] += 1
+        bucket_entries[idx].append(text)
+
+    # 2. 平均コメント数の算出（動画全体の時間に対するバケット平均）
+    avg_count = sum(buckets) / len(buckets)
+
+    # 3. 閾値の設定（全体の平均の1.5倍、かつ最低でも3コメント以上）
+    threshold = max(avg_count * 1.5, 3.0)
+
+    # 4. スパイク区間の検出
+    spikes = []
+    in_spike = False
+    spike_start = 0
+    spike_end = 0
+
+    for idx, count in enumerate(buckets):
+        if count >= threshold:
+            if not in_spike:
+                in_spike = True
+                spike_start = idx
+            spike_end = idx
+        else:
+            if in_spike:
+                spikes.append((spike_start * window_sec, (spike_end + 1) * window_sec))
+                in_spike = False
+    if in_spike:
+        spikes.append((spike_start * window_sec, (spike_end + 1) * window_sec))
+
+    if not spikes:
+        return "（顕著なチャットの盛り上がり区間は検出されませんでした）"
+
+    # 5. 各区間の詳細分析（盛り上がり倍率、リアクションの傾向）
+    report_lines = ["### 自動分析されたチャット盛り上がり時間帯（コメント急増区間）:"]
+    for start, end in spikes[:15]:  # 最大15個に制限
+        # 区間内のチャットメッセージを取得
+        messages = [text for t, text in entries if start <= t < end]
+        count = len(messages)
+        ratio = count / (avg_count * ((end - start) / window_sec)) if avg_count > 0 else 0
+
+        # 主なリアクションの集計
+        reactions = []
+        text_concat = " ".join(messages).lower()
+        
+        # 笑い (w, 草, 笑)
+        if any(w in text_concat for w in ["w", "草", "笑"]):
+            reactions.append("笑い(草/w)")
+        # 拍手 (👏, 8888)
+        if any(w in text_concat for w in ["👏", "888", "おめ", "さす", "流石"]):
+            reactions.append("拍手/賞賛(👏/888)")
+        # 驚き (!?、え、まじ)
+        if any(w in text_concat for w in ["!?", "！？", "え", "は？", "まじ", "マジ", "うそ", "嘘"]):
+            reactions.append("驚き(!?/えっ)")
+        # 悲鳴・絶叫・危機 (ぎゃー、きゃー、やば、こわ)
+        if any(w in text_concat for w in ["ぎゃ", "きゃ", "やば", "ヤバ", "こわ", "怖", "たすけ", "助け", "無理", "むり"]):
+            reactions.append("悲鳴/パニック(やばい/悲鳴)")
+
+        reaction_str = "、".join(reactions) if reactions else "一般的な会話"
+        report_lines.append(
+            f"- [{start:.1f}s - {end:.1f}s] (コメント密度: 通常の {ratio:.1f}倍) - 主なリアクション: {reaction_str}"
+        )
+
+    return "\n".join(report_lines)
+
+
 def slim_live_chat(chat_path: Path, log: Callable[[str], None] | None = None) -> None:
     """Rewrite a yt-dlp live_chat.json in place, keeping only {t, text} per message."""
     try:
@@ -746,10 +826,16 @@ def suggest_clips_from_result(
 
     chat_section = ""
     if chat_path and chat_path.exists():
-        entries = _read_chat_entries(chat_path, limit_lines=300)
-        chat_lines = [f"[{t:.1f}s] {text}" for t, text in entries[:200]]
-        if chat_lines:
-            chat_section = "\n## ライブチャット（タイムスタンプは動画開始からの秒数）\n" + "\n".join(chat_lines)
+        entries = _read_chat_entries(chat_path)  # 全件読み込み
+        if entries:
+            spike_report = analyze_chat_spikes(entries)
+            chat_lines = [f"[{t:.1f}s] {text}" for t, text in entries]
+            chat_section = (
+                "\n## ライブチャット分析レポート\n"
+                f"{spike_report}\n\n"
+                "## ライブチャットログ一覧（タイムスタンプは動画開始からの秒数）\n"
+                + "\n".join(chat_lines)
+            )
 
     from web.prompts import get_suggest_clips_prompt
 

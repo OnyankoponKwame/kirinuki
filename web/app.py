@@ -375,6 +375,7 @@ class ThemeReq(BaseModel):
     captionTextColor: str
     captionActiveColor: str
     captionActiveGlow: str
+    captionFont: str | None = None
 
 
 @app.get("/api/themes")

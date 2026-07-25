@@ -30,6 +30,7 @@ THEME_FIELDS = (
     "captionTextColor",
     "captionActiveColor",
     "captionActiveGlow",
+    "captionFont",
 )
 
 

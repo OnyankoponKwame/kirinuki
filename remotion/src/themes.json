@@ -8,7 +8,8 @@
       "titleAccentColor": "#4A0E4E",
       "captionTextColor": "#FFFFFF",
       "captionActiveColor": "#fe27c8",
-      "captionActiveGlow": "rgba(254, 39, 200, 0.5)"
+      "captionActiveGlow": "rgba(254, 39, 200, 0.5)",
+      "captionFont": "mochiy"
     },
     "heisei_girl": {
       "label": "平成女児",
@@ -17,7 +18,8 @@
       "titleAccentColor": "#880055",
       "captionTextColor": "#FFFFFF",
       "captionActiveColor": "#FF5184",
-      "captionActiveGlow": "rgba(255, 81, 132, 0.55)"
+      "captionActiveGlow": "rgba(255, 81, 132, 0.55)",
+      "captionFont": "mochiy"
     },
     "yumeno2": {
       "label": "yumeno2",
@@ -26,7 +28,8 @@
       "titleAccentColor": "#660033",
       "captionTextColor": "#FFFFFF",
       "captionActiveColor": "#FF4DB3",
-      "captionActiveGlow": "rgba(255, 77, 179, 0.70)"
+      "captionActiveGlow": "rgba(255, 77, 179, 0.70)",
+      "captionFont": "mochiy"
     }
   }
 }

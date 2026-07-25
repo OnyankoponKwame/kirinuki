@@ -1,4 +1,5 @@
 import themesData from "./themes.json";
+import { CaptionFontKey } from "./captionStyles";
 
 export interface ClipTheme {
   label: string;
@@ -8,6 +9,7 @@ export interface ClipTheme {
   captionTextColor: string;
   captionActiveColor: string;
   captionActiveGlow: string;
+  captionFont?: CaptionFontKey;
 }
 
 // Built-in presets — canonical source shared with the Python backend (see

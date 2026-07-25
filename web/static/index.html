@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kirinuki</title>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@700&family=Dela+Gothic+One&family=Kaisei+Decol:wght@700&family=M+PLUS+1p:wght@800;900&family=M+PLUS+Rounded+1c:wght@700;900&family=Mochiy+Pop+One&family=Noto+Sans+JP:wght@700;900&family=RocknRoll+One&family=Zen+Maru+Gothic:wght@700;900&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -304,6 +305,19 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
           <input type="color" id="te-glow-color" style="width:38px;height:34px;padding:2px;flex-shrink:0">
           <input type="range" id="te-glow-alpha" min="0" max="100" value="50" style="flex:1">
         </div>
+      </div>
+      <div class="field">
+        <label>字幕フォント</label>
+        <select id="te-caption-font" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
+          <option value="mochiy">Mochiy Pop</option>
+          <option value="rounded">丸ゴ太字</option>
+          <option value="gothic">Noto極太</option>
+          <option value="pop">M PLUSポップ</option>
+          <option value="impact">デラ極太</option>
+          <option value="retro">ロックンロール</option>
+          <option value="mincho">明朝デコ</option>
+          <option value="comment">コメント風</option>
+        </select>
       </div>
       <div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:4px">プレビュー</div>
@@ -1478,14 +1492,7 @@ function buildClipCard(clip, idx) {
       </div>
       <input type="range" class="clip-caption-size" min="48" max="160" step="4" value="${clip.captionFontSize ?? 96}" style="width:100%">
     </div>
-    <div class="clip-crop-row" style="margin-top:6px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-        <span>字幕フォント</span>
-      </div>
-      <select class="clip-caption-font" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
-        ${Object.entries(CAPTION_FONTS).map(([k, v]) => `<option value="${k}" ${(clip.captionFont || 'mochiy') === k ? 'selected' : ''}>${escHtml(v)}</option>`).join('')}
-      </select>
-    </div>
+
     <div class="clip-crop-row" style="margin-top:6px">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
         <span>カラーテーマ</span>
@@ -1974,7 +1981,6 @@ function readGridClips() {
       vertical: c.querySelector('.clip-vertical').checked,
       verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'split',
       captionFontSize: parseInt(c.querySelector('.clip-caption-size').value, 10),
-      captionFont: c.querySelector('.clip-caption-font').value,
       captionEffect: c.dataset.captionEffect || undefined,
       cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
       faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
@@ -2471,6 +2477,27 @@ function _hexToRgb(hex) {
   return [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
 }
 
+const FONT_FAMILIES = {
+  mochiy: '"Mochiy Pop One", "Zen Maru Gothic", sans-serif',
+  rounded: '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
+  gothic: '"Noto Sans JP", "Hiragino Sans", sans-serif',
+  pop: '"M PLUS 1p", "M PLUS Rounded 1c", sans-serif',
+  impact: '"Dela Gothic One", "Noto Sans JP", sans-serif',
+  retro: '"RocknRoll One", "Noto Sans JP", sans-serif',
+  mincho: '"Kaisei Decol", "Yu Mincho", serif',
+  comment: '"M PLUS Rounded 1c", "Zen Maru Gothic", sans-serif',
+};
+const FONT_WEIGHTS = {
+  mochiy: 400,
+  rounded: 900,
+  gothic: 900,
+  pop: 900,
+  impact: 400,
+  retro: 400,
+  mincho: 700,
+  comment: 900,
+};
+
 function openThemeEditor(themeId) {
   document.getElementById('theme-editor').hidden = false;
   document.getElementById('theme-editor-status').textContent = '';
@@ -2483,6 +2510,7 @@ function openThemeEditor(themeId) {
   document.getElementById('te-title-accent').value = t ? t.titleAccentColor : '#880055';
   document.getElementById('te-caption-text').value = t ? t.captionTextColor : '#FFFFFF';
   document.getElementById('te-caption-active').value = t ? t.captionActiveColor : '#FF4DB3';
+  document.getElementById('te-caption-font').value = t ? (t.captionFont || 'mochiy') : 'mochiy';
   const glow = _rgbaToHexAlpha(t ? t.captionActiveGlow : 'rgba(255, 77, 179, 0.6)');
   document.getElementById('te-glow-color').value = glow.hex;
   document.getElementById('te-glow-alpha').value = glow.alpha;
@@ -2515,17 +2543,20 @@ function collectThemeForm() {
     captionTextColor: document.getElementById('te-caption-text').value,
     captionActiveColor: document.getElementById('te-caption-active').value,
     captionActiveGlow: `rgba(${r}, ${g}, ${b}, ${alpha})`,
+    captionFont: document.getElementById('te-caption-font').value,
   };
 }
 
 function updateThemePreview() {
   const t = collectThemeForm();
+  const fontFam = FONT_FAMILIES[t.captionFont] || 'sans-serif';
+  const fontWeight = FONT_WEIGHTS[t.captionFont] || 'bold';
   document.getElementById('te-glow-alpha-val').textContent = document.getElementById('te-glow-alpha').value;
   document.getElementById('theme-preview').innerHTML = `
     <div style="padding:14px 16px;background:${t.titleBackground}">
-      <span style="font-weight:900;font-size:20px;color:${t.titleTextColor};-webkit-text-stroke:2px ${t.titleAccentColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">サンプルタイトル</span>
+      <span style="font-family:'Zen Maru Gothic', sans-serif;font-weight:900;font-size:20px;color:${t.titleTextColor};-webkit-text-stroke:2px ${t.titleAccentColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">サンプルタイトル</span>
     </div>
-    <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;font-weight:900;font-size:22px">
+    <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;font-family:${fontFam};font-weight:${fontWeight};font-size:22px;background:#151015">
       <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">これは</span>
       <span style="color:${t.captionActiveColor};text-shadow:3px 3px 0 ${t.titleAccentColor}, 0 0 12px ${t.captionActiveGlow}">字幕</span>
       <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">プレビューです</span>

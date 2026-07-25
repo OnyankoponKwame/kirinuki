@@ -56,6 +56,7 @@ const themeColorsSchema = z.object({
   captionTextColor: z.string(),
   captionActiveColor: z.string(),
   captionActiveGlow: z.string(),
+  captionFont: z.enum(CAPTION_FONT_KEYS).optional(),
 });
 
 export const clipSchema = z.object({
@@ -524,7 +525,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
 
   const captionOptions = {
     captionFontSize,
-    captionFont,
+    captionFont: themeColors?.captionFont ?? theme?.captionFont ?? captionFont ?? "mochiy",
     theme,
   };
 
