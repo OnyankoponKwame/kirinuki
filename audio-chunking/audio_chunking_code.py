@@ -13,7 +13,7 @@ import re
 _AUDIO_MODE_CONFIG: dict[str, tuple[str, list[str], str]] = {
     "mp3": (
         ".mp3",
-        ["-ar", "16000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "32k", "-threads", "0"],
+        ["-ar", "16000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "96k", "-threads", "0"],
         "mp3",
     ),
     "flac_fast": (
@@ -27,6 +27,22 @@ _AUDIO_MODE_CONFIG: dict[str, tuple[str, list[str], str]] = {
         "mp4",
     ),
 }
+
+# Fields downstream code (pipeline.suggest_clips, caption builder, etc.) actually reads.
+# Everything else (id, seek, tokens, temperature, avg_logprob, compression_ratio,
+# no_speech_prob, …) is dropped to keep the JSON and the Claude CLI prompt small.
+_SEGMENT_KEEP_FIELDS: tuple[str, ...] = ("start", "end", "text")
+
+
+def slim_transcription_result(result: dict) -> dict:
+    """Return a copy of `result` with top-level `text`/`words` removed and each
+    segment reduced to (start, end, text). Use this before persisting or sending
+    the transcript to an LLM."""
+    slimmed_segments = [
+        {k: seg[k] for k in _SEGMENT_KEEP_FIELDS if k in seg}
+        for seg in result.get("segments", [])
+    ]
+    return {"segments": slimmed_segments}
 
 
 def preprocess_audio(input_path: Path, audio_mode: str = "mp3") -> tuple[Path, str]:
@@ -480,15 +496,20 @@ def save_results(result: dict, audio_path: Path) -> Path:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_path = output_dir / f"{Path(audio_path).stem}_{timestamp}"
         
+        slim = slim_transcription_result(result)
+        txt_content = result.get("text") or " ".join(
+            s.get("text", "").strip() for s in slim["segments"]
+        )
+
         # Save results in different formats
         with open(f"{base_path}.txt", 'w', encoding='utf-8') as f:
-            f.write(result["text"])
-        
+            f.write(txt_content)
+
         with open(f"{base_path}_full.json", 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        
+            json.dump(slim, f, indent=2, ensure_ascii=False)
+
         with open(f"{base_path}_segments.json", 'w', encoding='utf-8') as f:
-            json.dump(result["segments"], f, indent=2, ensure_ascii=False)
+            json.dump(slim["segments"], f, indent=2, ensure_ascii=False)
         
         print(f"\nResults saved to transcriptions folder:")
         print(f"- {base_path}.txt")

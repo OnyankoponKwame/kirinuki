@@ -1,0 +1,227 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1784989157466,
+  "projectRoot": "/Users/maru/workspace/kirinuki",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "SP=/private/tmp/claude-501/-Users-maru-workspace-kirinuki/bebe65df-ea8b-4271-829a-74d75f695484/scratchpad\ncd /Users/maru/workspace/kirinuki\npython3 - \"$SP/test_edge.py\" <<'PY'\nimport sys\np = sys.argv[1]; s = open(p).read()\ns = s.replace('''print(\"== fps → (timebase, ntsc) ==\")\nfor fps, want in [\n    (30.0, (30, False)), (30000 / 1001, (30, True)), (24.0, (24, False)),\n    (24000 / 1001, (24, True)), (25.0, (25, False)), (50.0, (50, False)),\n    (60.0, (60, False)), (60000 / 1001, (60, True)),\n]:\n    got = px.fps_to_timebase(fps)\n    check(got == want, f\"{fps:.4f} → {got} (want {want})\")\n\nprint(\"\\\\n== pathurl encoding ==\")\np = ROOT / \"downloads/DARK SOULS初見プレイ#1【萌声Vtuber】.mp4\"\nurl = px.path_to_pathurl(p)\ncheck(url.startswith(\"file://localhost/\"), \"starts with file://localhost/\")\ncheck(\"#\" not in url, \"'#' percent-encoded (would truncate the URL otherwise)\")\ncheck(\" \" not in url, \"spaces percent-encoded\")\ncheck(unquote(url[len(\"file://localhost\"):]) == str(p.resolve()), \"decodes back to the exact path\")\n\nprint(\"\\\\n== keep intervals ==\")''', 'print(\"== keep intervals ==\")')\ns = s.replace(\"import xml.etree.ElementTree as ET\\n\", \"\")\ns = s.replace(\"from urllib.parse import unquote\\n\", \"\")\nopen(p, \"w\").write(s); print(\"patched\")\nPY\necho \"=========== edge ===========\"\npython3 $SP/test_edge.py 2>&1 | tail -4",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "audio-chunking": {
+      "path": "audio-chunking",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1784989157455,
+      "keyFiles": [
+        "audio_chunking_code.py",
+        "audio_chunking_tutorial.ipynb"
+      ]
+    },
+    "clips": {
+      "path": "clips",
+      "purpose": null,
+      "fileCount": 24,
+      "lastAccessed": 1784989157456,
+      "keyFiles": [
+        "00__ビビらずに進めていきたい__バイオ_3開幕宣言_v.mp4",
+        "00__ビビらずに進めていきたい__バイオ_3開幕宣言.mp4",
+        "00__不思議なノート__ゆめのんの可愛すぎる夢_v.mp4",
+        "00__不思議なノート_ゆめのんの可愛すぎる夢.mp4",
+        "00__不思議なノート_ゆめのんの可愛すぎる夢_v.mp4"
+      ]
+    },
+    "downloads": {
+      "path": "downloads",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1784989157456,
+      "keyFiles": [
+        "DARK SOULS初見プレイ#1【萌声Vtuber】.mp4",
+        "DARK SOULS初見プレイ#1【萌声Vtuber】_audio_16k_mono_32k.mp3",
+        "DARK SOULS初見プレイ#1【萌声Vtuber】_fi3Ewu56yR0.live_chat.json",
+        "【 KH1 】初見必見!!🔰イチから始める初代キングダムハーツ！【 #新人VTuber ｜ 飴白なび】_EsGuJCdgT3c.live_chat.json",
+        "【緊迫】RENOSY事業責任者と不動産投資について忖度なしのガチ論争しました_7AiAH8V-fS4.mp3"
+      ]
+    },
+    "exports": {
+      "path": "exports",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1784989157457,
+      "keyFiles": [
+        "premiere_DARK SOULS初見プレイ#1【萌声Vtuber】_20260725_215311.zip"
+      ]
+    },
+    "packaging": {
+      "path": "packaging",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1784989157457,
+      "keyFiles": []
+    },
+    "remotion": {
+      "path": "remotion",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1784989157458,
+      "keyFiles": [
+        "package-lock.json",
+        "package.json",
+        "remotion.config.ts",
+        "studio-props.json",
+        "tsconfig.json"
+      ]
+    },
+    "transcriptions": {
+      "path": "transcriptions",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1784989157459,
+      "keyFiles": [
+        "DARK SOULS初見プレイ#1【萌声Vtuber】_20260514_024008_full.json",
+        "clips_DARK SOULS初見プレイ#1【萌声Vtuber】_20260514_024008.json",
+        "clips_雑談 作戦会議じゃ【Vtuber】_20260527_021622.json",
+        "雑談 作戦会議じゃ【Vtuber】_20260527_021622_full.json"
+      ]
+    },
+    "transcriptionsのコピー": {
+      "path": "transcriptionsのコピー",
+      "purpose": null,
+      "fileCount": 39,
+      "lastAccessed": 1784989157461,
+      "keyFiles": [
+        "DARK SOULS初見プレイ#1【萌声Vtuber】_20260514_000956_full.json",
+        "clips_DARK SOULS初見プレイ#1【萌声Vtuber】_20260514_000956.json",
+        "clips___no_video___20260428_225948.json",
+        "clips___no_video___20260429_152737.json",
+        "clips___no_video___20260507_011836.json"
+      ]
+    },
+    "web": {
+      "path": "web",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1784989157462,
+      "keyFiles": [
+        "app.py",
+        "config.py",
+        "elevenlabs_transcribe.py",
+        "pipeline.py",
+        "premiere_export.py"
+      ]
+    },
+    "remotion/node_modules": {
+      "path": "remotion/node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 2,
+      "lastAccessed": 1784989157465,
+      "keyFiles": []
+    },
+    "remotion/out": {
+      "path": "remotion/out",
+      "purpose": "Build output",
+      "fileCount": 46,
+      "lastAccessed": 1784989157466,
+      "keyFiles": [
+        "ame-01.mp4",
+        "ame-02.mp4",
+        "clip-00-視聴順-教-頭-追.mp4"
+      ]
+    },
+    "remotion/public": {
+      "path": "remotion/public",
+      "purpose": "Public files",
+      "fileCount": 5,
+      "lastAccessed": 1784989157466,
+      "keyFiles": [
+        "Onoma-Pop04.mp3",
+        "keifont.ttf",
+        "kkrn_icon_user_2.png"
+      ]
+    },
+    "remotion/src": {
+      "path": "remotion/src",
+      "purpose": "Source code",
+      "fileCount": 12,
+      "lastAccessed": 1784989157466,
+      "keyFiles": [
+        "CaptionPage.tsx",
+        "ClipComposition.tsx",
+        "Root.tsx"
+      ]
+    },
+    "web/static": {
+      "path": "web/static",
+      "purpose": "Static files",
+      "fileCount": 1,
+      "lastAccessed": 1784989157466,
+      "keyFiles": [
+        "index.html"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "web/premiere_export.py",
+      "accessCount": 5,
+      "lastAccessed": 1784994443211,
+      "type": "file"
+    },
+    {
+      "path": "web/static/index.html",
+      "accessCount": 5,
+      "lastAccessed": 1784994498690,
+      "type": "file"
+    },
+    {
+      "path": "web/pipeline.py",
+      "accessCount": 2,
+      "lastAccessed": 1784994467878,
+      "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 2,
+      "lastAccessed": 1784994517711,
+      "type": "file"
+    },
+    {
+      "path": "web/app.py",
+      "accessCount": 1,
+      "lastAccessed": 1784994531057,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

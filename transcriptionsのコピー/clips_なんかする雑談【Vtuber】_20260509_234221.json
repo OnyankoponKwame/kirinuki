@@ -1,0 +1,94 @@
+[
+  {
+    "title": "実はバビ肉でした…衝撃のカミングアウト",
+    "start_sec": 61.3,
+    "end_sec": 120.6,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "shock",
+    "reason": "「バビ肉でした・男でした・ずっと騙してた」という突然のカミングアウントが笑えるし拡散されやすいインパクト大の場面"
+  },
+  {
+    "title": "ママにキャラメルフラペチーノを止められた話",
+    "start_sec": 251.8,
+    "end_sec": 295.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "カロリーを指摘されてほうじ茶に変えさせられた理不尽エピソード。「平均体重より低いのに！」というツッコミが共感を呼ぶ"
+  },
+  {
+    "title": "おばあちゃんに4万のカバンが60万になって返ってきた",
+    "start_sec": 370.9,
+    "end_sec": 477.5,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "shock",
+    "reason": "ボロボロのカバンを使い続けていたら祖母から60万円相当のカバンを貰った話。一瞬売ろうか考えた正直な告白も含め笑いと驚きが両立する"
+  },
+  {
+    "title": "あつ森起動したらゆめのんが2人いた",
+    "start_sec": 771.2,
+    "end_sec": 845.21376,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "「ポケットの中にゆめのんが2人」という謎状況と、カートリッジを間違えて入れるADHD全開の混乱ぶりが面白い",
+    "keepIntervals": [
+      {
+        "startSec": 771.2,
+        "endSec": 801.61375
+      },
+      {
+        "startSec": 805.31375,
+        "endSec": 845.21376
+      }
+    ]
+  },
+  {
+    "title": "アフタヌーンティー奢ってくれたら好きになるかも【恋愛論】",
+    "start_sec": 1199.2,
+    "end_sec": 1329.8,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "cute",
+    "reason": "「7000円のアフヌンを奢ってくれたら好きかも、割り勘させられたらめっちゃ嫌い」という正直すぎる恋愛観がバズりやすい。男性視聴者へのアドバイス展開も面白い"
+  },
+  {
+    "title": "VTuberは炎上しないと日の目を見ない、炎上したい！",
+    "start_sec": 2505.1,
+    "end_sec": 2539.4,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "punch",
+    "reason": "「炎上してなんぼじゃない？ゆめの全然炎上してないんだけど炎上したいです」という自虐的で正直すぎる発言がVTuber界隈で拡散されやすいパンチライン"
+  },
+  {
+    "title": "臭い客に消臭スプレーを売りつけるカードショップ店長",
+    "start_sec": 4796.6,
+    "end_sec": 4902.3,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "消臭スプレーを買いに来た客を「自分が臭いって気づいてない」と分析しつつ売りつけるシュールなやり取りと「可愛い女の子だからいい匂いがするの！」の締めが面白い"
+  },
+  {
+    "title": "遊戯王でミスってイライラして配信を強制終了",
+    "start_sec": 6648.4,
+    "end_sec": 6735.7,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "anger",
+    "reason": "デュエルでミスを連発して「もうやだやだ！配信やめます！イライラしたのでやめます！さようなら！」と唐突にキレて終了する流れが笑える切り抜き向けの場面",
+    "keepIntervals": [
+      {
+        "startSec": 6648.4,
+        "endSec": 6659.1305
+      },
+      {
+        "startSec": 6662.4705,
+        "endSec": 6735.7
+      }
+    ]
+  }
+]

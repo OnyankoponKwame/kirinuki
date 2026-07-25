@@ -1,0 +1,169 @@
+[
+  {
+    "title": "キャラクリで顔がどんどん崩壊していく",
+    "start_sec": 479.1,
+    "end_sec": 636.2,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "キャラクリのパラメーター調整で顔がどんどんブサイクになり「やばいやばい」「なんかブサイクになってく」と慌てるリアクションが爆笑必至。初見あるあるで共感も高い。",
+    "keepIntervals": [
+      {
+        "startSec": 479.1,
+        "endSec": 543.74375
+      },
+      {
+        "startSec": 547.44375,
+        "endSec": 612.8375
+      },
+      {
+        "startSec": 617.3575000000001,
+        "endSec": 636.2
+      }
+    ]
+  },
+  {
+    "title": "ダクソ初プレイ、いきなり敵が来てパニック",
+    "start_sec": 769.3,
+    "end_sec": 865.8,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "ゲーム開始直後に謎の敵が現れ「え？なに？どれが攻撃？」とパニックになる初見の反応。ダクソあるあるとして非常にバズりやすい。",
+    "keepIntervals": [
+      {
+        "startSec": 769.3,
+        "endSec": 790.5775
+      },
+      {
+        "startSec": 793.9775000000001,
+        "endSec": 832.3974999999999
+      },
+      {
+        "startSec": 841.0975,
+        "endSec": 865.8
+      }
+    ]
+  },
+  {
+    "title": "30分間ずっと素手で戦い続けた女",
+    "start_sec": 1386.9,
+    "end_sec": 1600.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "武器の装備方法がわからず素手で戦い続けるカオス。「素手？」「今何装備する」のやりとりと、後にコメントで「30分かかった」と言われる流れが笑える。",
+    "keepIntervals": [
+      {
+        "startSec": 1386.9,
+        "endSec": 1551.3187400000002
+      },
+      {
+        "startSec": 1554.01874,
+        "endSec": 1600.0
+      }
+    ]
+  },
+  {
+    "title": "矢が刺さって「マジでムカつく！」初心者の怒り爆発",
+    "start_sec": 1694.2,
+    "end_sec": 1770.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "anger",
+    "reason": "弓矢を連射してくる敵に「なんで刺してくんの」「ムカつくお前マジでよ」と怒り爆発するシーン。ゲーム初心者の共感を呼ぶリアクション動画として最適。"
+  },
+  {
+    "title": "R1！R1！R1！落下攻撃を習得するまでの死闘",
+    "start_sec": 2930.0,
+    "end_sec": 3090.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "gaming",
+    "reason": "地面のメッセージを読んでR1落下攻撃を何度も試みるが失敗し、最終的に「いけたいけた！」と成功する瞬間。試行錯誤から達成感までの起伏が見ていて楽しい。",
+    "keepIntervals": [
+      {
+        "startSec": 2937.6338,
+        "endSec": 3023.5475
+      },
+      {
+        "startSec": 3029.5875,
+        "endSec": 3086.8675
+      }
+    ]
+  },
+  {
+    "title": "初ボス『不死院のデーモン』撃破！歓喜してエンディング曲を歌い出す",
+    "start_sec": 4259.6,
+    "end_sec": 4390.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "hype",
+    "reason": "初ボス戦クライマックスから「倒せた倒せたやった！」の大歓喜、そしてエンディング曲を歌い始めるまでの流れ。感情の起伏が激しく切り抜きとして完璧な構成。",
+    "keepIntervals": [
+      {
+        "startSec": 4259.6,
+        "endSec": 4269.2625
+      },
+      {
+        "startSec": 4280.0425000000005,
+        "endSec": 4390.0
+      }
+    ]
+  },
+  {
+    "title": "ボスを倒した直後にレベルアップの使い方を覚えたら崖から落下死",
+    "start_sec": 4581.7,
+    "end_sec": 4690.556299999999,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "shock",
+    "reason": "ボス撃破後の達成感からレベルアップをこなし、直後に崖から落ちて即死。「ゴケから落ちて死んだ」「意味わかんない」の落差がコミカルで短くまとまる。",
+    "keepIntervals": [
+      {
+        "startSec": 4581.7,
+        "endSec": 4607.91624
+      },
+      {
+        "startSec": 4637.5562,
+        "endSec": 4651.176299999999
+      },
+      {
+        "startSec": 4656.1562,
+        "endSec": 4690.556299999999
+      }
+    ]
+  },
+  {
+    "title": "このゲーム進めたお前らが全員悪い！スパチャして謝れ",
+    "start_sec": 4966.6,
+    "end_sec": 5032.7,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "punch",
+    "reason": "「お前らがやれって言うから」「進めたやつ反省してどうぞ」という視聴者への責任転嫁トーク。配信あるあるで視聴者側も笑えるパンチラインが揃っている。"
+  },
+  {
+    "title": "むしゃくしゃしてNPCを殴ったら一生追いかけられた",
+    "start_sec": 5027.9,
+    "end_sec": 5215.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "NPCをうっかり攻撃してしまい逃げ回る地獄絵図。「誰だよNPC攻撃させたやつ」「一生許してもらえない」という絶叫が面白く、NPCが追いかけてくる臨場感も高い。",
+    "keepIntervals": [
+      {
+        "startSec": 5040.51,
+        "endSec": 5046.8099999999995
+      },
+      {
+        "startSec": 5050.51,
+        "endSec": 5101.20375
+      },
+      {
+        "startSec": 5112.90375,
+        "endSec": 5215.0
+      }
+    ]
+  }
+]

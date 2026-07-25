@@ -45,6 +45,40 @@ The project has three layers that communicate through the filesystem and subproc
 - `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `elevenlabs_transcribe.py` / `audio_chunking_code.py` depending on `transcription_model` — never Gemini), `suggest_clips_from_result` (calls Gemini via `google-genai`, model `pipeline.GEMINI_MODEL_ID`, regardless of which transcription backend was used), `render_clip` (calls `npx remotion render`).
 - `web/config.py` — Persists API keys entered via the settings screen to `config.json` under `get_data_dir()` (repo root in dev, `%LOCALAPPDATA%\Kirinuki` on a packaged Windows install), and applies them to `os.environ` on top of `.env`.
 
+### Editing-material export (`web/premiere_export.py`)
+A second, independent output path alongside the Remotion renderer, for editors who want to do
+the captioning themselves in Premiere Pro (or any other NLE).
+`POST /api/jobs/{jid}/export-premiere` writes a package under `exports/` (zipped for download
+via `GET /api/exports/{name}`) containing, per selected clip:
+- an **mp4 with the vertical framing and `cutIntervals` baked in but no captions, title bar,
+  or effects** — encoded by ffmpeg (H.264 CRF 18), never by Remotion
+- an `.srt` whose timings line up with that mp4 exactly
+
+plus a Japanese `README.txt`. Deliberately no project/interchange file: an earlier version
+emitted an FCP7 XML, but once framing and cuts were baked into the mp4 that file did nothing
+but place one whole clip on one sequence — which dragging the mp4 into Premiere already does —
+so it was dropped rather than maintained. Baking the framing in also means the package works
+the same in Resolve or Final Cut, and nothing depends on how an importer reads an interchange
+format. The trade-off is that crop position and cuts cannot be adjusted downstream; re-export
+from the app instead.
+
+Unlike `/render`, this endpoint is long-running: it starts a background task, reports progress
+over the job's SSE stream, publishes the result in the state message's `export` field, and
+honours `/cancel` (status `exporting`).
+
+Not reproducible downstream, and therefore Remotion-only: karaoke active-word highlighting,
+`captionEffect` animations, the title bar text, and theme colours.
+
+One thing to know before touching it: `compute_keep_intervals()` / `remap_captions_to_cuts()`
+in `pipeline.py` are **line-by-line ports of the `intervals` and `effectiveCaptions` useMemos
+in `ClipComposition.tsx`**, and `premiere_export.compute_layers()` mirrors that file's layout
+math (including the hand-tuned `translate: "-63.5px -31.7px"` split nudge and the title-bar
+height calculation). `compute_layers()` is the single source for both the ffmpeg filtergraph
+and the sequence dimensions, so exports stay self-consistent — but changing the TSX without
+mirroring it here makes a Remotion render and a Premiere export disagree. The two were verified
+to agree to the pixel (SSIM 0.98 against a Remotion still of the same frame; ±1px of crop
+offset drops it to 0.97).
+
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).
 - `remotion/src/CaptionPage.tsx` — Renders one TikTok-style caption page with karaoke-style active-word highlighting (white text, pink active token).
@@ -65,6 +99,8 @@ URL → yt-dlp → .mp4 (downloads/)
       Gemini → clips_*.json (transcriptions/)
             ↓
       npx remotion render → *.mp4 (clips/)
+            ↓ (別経路・任意)
+      premiere_export → ffmpeg → 字幕なしmp4 + SRT (exports/*.zip)
 ```
 
 ## Clip data schema

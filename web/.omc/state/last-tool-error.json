@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"sed -n '755,790p' web/static/index.html; echo \\\"--- get_job ---\\\"; grep -n -A 6 \\\"def get_job\\\" web/app.py\",\"description\":\"Check consumers of GET /api/jobs/{jid}\"}",
+  "error": "Exit code 2\nsed: web/static/index.html: No such file or directory\n--- get_job ---\nugrep: warning: web/app.py: No such file or directory",
+  "timestamp": "2026-07-25T11:55:26.311Z",
+  "retry_count": 2
+}

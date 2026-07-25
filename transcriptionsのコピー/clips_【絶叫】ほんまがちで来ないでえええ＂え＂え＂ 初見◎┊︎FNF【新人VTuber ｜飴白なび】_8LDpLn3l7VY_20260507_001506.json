@@ -1,0 +1,164 @@
+[
+  {
+    "title": "初見VRホラー、開幕から「こわすぎる」連発【FNAF VR】",
+    "start_sec": 206.2,
+    "end_sec": 290.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "配信開幕直後の初見リアクション。「みなさーん」→「こんばんは」→即「こわい」の流れが短くまとまっており、視聴者の「こんなびー」コメントとのギャップも面白い。つかみとして最適。",
+    "keepIntervals": [
+      {
+        "startSec": 206.2,
+        "endSec": 257.80674
+      },
+      {
+        "startSec": 262.00674000000004,
+        "endSec": 290.0
+      }
+    ]
+  },
+  {
+    "title": "赤い！赤いよ！やばい待って——初日の夜に震える管理人",
+    "start_sec": 289.3,
+    "end_sec": 345.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "「赤い赤いよね」「ちょっと待ってよ」と絶叫しながら視聴者の名前を読み上げる謎のマルチタスクが爆笑を誘う。チャットの「ﾆｺﾆｺ('ω')」との温度差が絶妙。"
+  },
+  {
+    "title": "笑い声→即絶叫、初ジャンプスケアに撃沈",
+    "start_sec": 682.0,
+    "end_sec": 730.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "shock",
+    "reason": "「あははははは」と笑った直後に絶叫してゲームオーバー。チャット「良い声だ」「1Death」のコメントが盛り上がっており、落差が大きく切り抜き向き。",
+    "keepIntervals": [
+      {
+        "startSec": 682.0,
+        "endSec": 720.377
+      },
+      {
+        "startSec": 723.477,
+        "endSec": 730.0
+      }
+    ]
+  },
+  {
+    "title": "「動いてる！動いてる！こっちに来てる！」パニック逃走劇",
+    "start_sec": 793.0,
+    "end_sec": 860.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "アニマトロニクスが動き始めて本格的に恐怖がピークに達する場面。純粋なパニックリアクションが連続し、視聴者の「包囲されてる」コメントと合わさって盛り上がる。",
+    "keepIntervals": [
+      {
+        "startSec": 793.0,
+        "endSec": 801.59375
+      },
+      {
+        "startSec": 807.29377,
+        "endSec": 815.59377
+      },
+      {
+        "startSec": 821.29377,
+        "endSec": 829.59377
+      },
+      {
+        "startSec": 839.29377,
+        "endSec": 855.5937700000001
+      }
+    ]
+  },
+  {
+    "title": "命からがら取ったショートケーキを震える手で持つVTuber",
+    "start_sec": 1087.4,
+    "end_sec": 1135.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "「命からがら取ったショートケーキや」→「怖すぎて手が震える」という緊張と可愛さのギャップが最高。チャット「震えすぎてケーキぐちゃぐちゃ」も絶妙なツッコミ。"
+  },
+  {
+    "title": "「安全圏から見るホラーゲーム楽しいです」→「ふざけんな！お前がやれ！」",
+    "start_sec": 1780.5,
+    "end_sec": 1815.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "チャットの煽りコメントに対して全力でツッコむ場面。「カメラのピークをして僕がトークしてるだけ」の言い訳も面白く、配信者とリスナーのかけ合い切り抜きとして鉄板構成。",
+    "keepIntervals": [
+      {
+        "startSec": 1780.5,
+        "endSec": 1786.991
+      },
+      {
+        "startSec": 1790.331,
+        "endSec": 1801.471
+      },
+      {
+        "startSec": 1808.2109999999998,
+        "endSec": 1815.0
+      }
+    ]
+  },
+  {
+    "title": "「わしは死にとうない」——FNAFに時代劇が現る",
+    "start_sec": 1519.4,
+    "end_sec": 1555.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "laugh",
+    "reason": "恐怖の中に突然飛び出す「わしは死にとうない」という古典的名言。チャット「あじのもと: ワシは死にとうない」との同時ヒットが確認できる非常にバズりやすい短いクリップ。"
+  },
+  {
+    "title": "「私はどうすればよかったの……」ダークルームで詰む",
+    "start_sec": 2465.158,
+    "end_sec": 2515.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "question",
+    "reason": "ルール不明のまま失敗してカウントダウンされ、絶望的な独白をする場面。「私はどうすればよかったの」の繰り返しが切なくも笑えて、Xでのテキスト引用バズが狙える。",
+    "keepIntervals": [
+      {
+        "startSec": 2465.158,
+        "endSec": 2488.678
+      },
+      {
+        "startSec": 2495.158,
+        "endSec": 2515.0
+      }
+    ]
+  },
+  {
+    "title": "「来ないで」を10回唱える女と迫り来るアニマトロニクス",
+    "start_sec": 2860.0,
+    "end_sec": 2915.0,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "panic",
+    "reason": "「来ないで来ないで来ないで……」と連呼し続けるリズミカルなパニックが独特のテンポを生む。TikTokループ向きの中毒性があり、短い字幕リズムが映える場面。",
+    "keepIntervals": [
+      {
+        "startSec": 2860.0,
+        "endSec": 2886.64824
+      },
+      {
+        "startSec": 2897.7282,
+        "endSec": 2912.0282
+      }
+    ]
+  },
+  {
+    "title": "初ホラゲークリア！「戦えてよかったです」感動の幕切れ",
+    "start_sec": 3151.62174,
+    "end_sec": 3179.92174,
+    "vertical": true,
+    "verticalMode": "crop",
+    "captionEffect": "hype",
+    "reason": "「終わったー！やったー！今日初めてのホラゲー」と安堵するクリア場面。長い恐怖の末の達成感が視聴者と共有でき、シリーズ切り抜きのラストカットとしても機能する。"
+  }
+]

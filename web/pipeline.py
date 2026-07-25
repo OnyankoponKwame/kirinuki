@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 import config as cfg
+import theme_store
 
 # Model used for clip suggestion (suggest_clips_from_result). Transcription does not
 # use Gemini — see run_transcription()'s "groq" / "elevenlabs" branches.
@@ -65,6 +66,146 @@ def with_logging(handler: Callable[[str], None]):
         _tl.handler = None
 
 
+# ── Live chat ─────────────────────────────────────────────────────────────────
+# yt-dlp has no download option to slim this down: --convert-subs explicitly refuses to
+# convert "json" subtitles (which is what live_chat always is) into any other format. So
+# each raw *.live_chat.json line is a full YouTube replay-action tree (badge/author-photo
+# URLs, click-tracking params, emoji metadata, ...) — 1.5KB+ per chat message when only the
+# timestamp and text are ever used. We rewrite the file in place right after download to
+# `{"t": <video-offset-seconds>, "text": "..."}` per line, cutting size by ~95%+.
+
+def _extract_chat_text(message: dict) -> str:
+    parts = []
+    for run in message.get("runs", []):
+        if "text" in run:
+            parts.append(run["text"])
+        else:
+            emoji = run.get("emoji", {})
+            # For custom emoji/stamps, accessibilityData.label ("草ああ") is the clean
+            # human-readable name — shortcuts ([":_草ああ:", ":草ああ:"]) carry stray
+            # colons/underscores from the shortcode syntax, so only fall back to those
+            # if a label is somehow missing.
+            label = (
+                emoji.get("image", {})
+                .get("accessibility", {})
+                .get("accessibilityData", {})
+                .get("label")
+            )
+            if label:
+                parts.append(label)
+            else:
+                shortcuts = emoji.get("shortcuts") or []
+                if shortcuts:
+                    parts.append(shortcuts[0])
+    return "".join(parts).strip()
+
+
+def _parse_raw_chat_line(obj: dict) -> list[tuple[float, str]]:
+    """Extract (video_offset_sec, text) pairs from one line of yt-dlp's raw live_chat.json."""
+    rca = obj.get("replayChatItemAction", {})
+    try:
+        offset = int(rca.get("videoOffsetTimeMsec", 0) or 0) / 1000
+    except (TypeError, ValueError):
+        offset = 0.0
+    out = []
+    for action in rca.get("actions", []):
+        r = (
+            action.get("addChatItemAction", {})
+            .get("item", {})
+            .get("liveChatTextMessageRenderer", {})
+        )
+        if r:
+            text = _extract_chat_text(r.get("message", {}))
+            if text:
+                out.append((offset, text))
+    return out
+
+
+def _read_chat_entries(chat_path: Path, limit_lines: int | None = None) -> list[tuple[float, str]]:
+    """Read chat messages as (video_offset_sec, text) pairs.
+
+    Understands three on-disk shapes so callers don't need to care which stage of the
+    pipeline produced the file: a pretty-printed `[{"t":.., "text":..}, ...]` array (what
+    save_chat() writes into transcriptions/), one `{"t":.., "text":..}` object per line
+    (what slim_live_chat() writes back into downloads/), or yt-dlp's original raw JSONL.
+    """
+    with open(chat_path, encoding="utf-8") as f:
+        content = f.read()
+
+    if content.lstrip().startswith("["):
+        try:
+            data = json.loads(content)
+        except Exception:
+            return []
+        entries = []
+        for obj in data if isinstance(data, list) else []:
+            text = str(obj.get("text", "")).strip() if isinstance(obj, dict) else ""
+            if text:
+                entries.append((obj.get("t", 0.0), text))
+        return entries[:limit_lines] if limit_lines is not None else entries
+
+    entries = []
+    for i, line in enumerate(content.splitlines()):
+        if limit_lines is not None and i >= limit_lines:
+            break
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if "text" in obj:
+            text = str(obj.get("text", "")).strip()
+            if text:
+                entries.append((obj.get("t", 0.0), text))
+        else:
+            entries.extend(_parse_raw_chat_line(obj))
+    return entries
+
+
+def slim_live_chat(chat_path: Path, log: Callable[[str], None] | None = None) -> None:
+    """Rewrite a yt-dlp live_chat.json in place, keeping only {t, text} per message."""
+    try:
+        with open(chat_path, encoding="utf-8") as f:
+            first_line = next((line for line in f if line.strip()), "")
+        if not first_line or "replayChatItemAction" not in first_line:
+            return  # already slimmed, or not the format we expect — leave untouched
+        entries = _read_chat_entries(chat_path)
+    except OSError:
+        return
+
+    tmp_path = chat_path.with_suffix(chat_path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        for offset, text in entries:
+            f.write(json.dumps({"t": round(offset, 1), "text": text}, ensure_ascii=False) + "\n")
+    tmp_path.replace(chat_path)
+    if log:
+        log(f"✓ Chat trimmed: {len(entries)} messages")
+
+
+def save_chat(chat_path: Path, transcription_path: Path) -> Path:
+    """Reformat a live_chat.json into transcriptions/, paired with its transcription file.
+
+    Mirrors save_transcription()/save_clips(): the pipeline should never read live chat
+    straight out of downloads/ for clip suggestion — it reads this dedicated-folder copy,
+    saved once up front, same as the transcription.
+    """
+    entries = _read_chat_entries(chat_path)
+    out_dir = PROJECT_DIR / "transcriptions"
+    out_dir.mkdir(exist_ok=True)
+    base = transcription_path.stem  # e.g. "title_20260510_123456_full"
+    if base.endswith("_full"):
+        base = base[:-5]
+    path = out_dir / f"chat_{base}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            [{"t": round(t, 1), "text": text} for t, text in entries],
+            f, indent=2, ensure_ascii=False,
+        )
+    return path
+
+
 # ── Download ──────────────────────────────────────────────────────────────────
 
 def download_video(
@@ -114,7 +255,10 @@ def download_video(
         raise RuntimeError(f"Downloaded file missing: {video_path}")
 
     chat_path = video_path.with_suffix("").with_suffix(".live_chat.json")
-    return video_path, chat_path if chat_path.exists() else None
+    if not chat_path.exists():
+        return video_path, None
+    slim_live_chat(chat_path, log)
+    return video_path, chat_path
 
 
 # ── Download chat only ────────────────────────────────────────────────────────
@@ -154,7 +298,11 @@ def download_chat_only(
         raise RuntimeError("yt-dlp failed — URLとネット接続を確認してください")
 
     chat_files = sorted(output_dir.glob("*.live_chat.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return chat_files[0] if chat_files else None
+    if not chat_files:
+        return None
+    chat_path = chat_files[0]
+    slim_live_chat(chat_path, log)
+    return chat_path
 
 
 # ── Transcribe ────────────────────────────────────────────────────────────────
@@ -442,29 +590,10 @@ def suggest_clips_from_result(
 
     chat_section = ""
     if chat_path and chat_path.exists():
-        chat_lines: list[str] = []
-        with open(chat_path, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i >= 300:
-                    break
-                try:
-                    msg = json.loads(line)
-                    for action in msg.get("replayChatItemAction", {}).get("actions", []):
-                        r = (
-                            action.get("addChatItemAction", {})
-                            .get("item", {})
-                            .get("liveChatTextMessageRenderer", {})
-                        )
-                        if r:
-                            author = r.get("authorName", {}).get("simpleText", "?")
-                            text = "".join(
-                                x.get("text", "") for x in r.get("message", {}).get("runs", [])
-                            )
-                            chat_lines.append(f"{author}: {text}")
-                except Exception:
-                    continue
+        entries = _read_chat_entries(chat_path, limit_lines=300)
+        chat_lines = [f"[{t:.1f}s] {text}" for t, text in entries[:200]]
         if chat_lines:
-            chat_section = "\n## ライブチャット\n" + "\n".join(chat_lines[:200])
+            chat_section = "\n## ライブチャット（タイムスタンプは動画開始からの秒数）\n" + "\n".join(chat_lines)
 
     prompt = f"""以下はYouTube動画の文字起こしです。
 
@@ -672,6 +801,101 @@ def get_video_dimensions(video_path: Path) -> tuple[int, int]:
         return 1920, 1080
 
 
+def _ffprobe_field(video_path: Path, entries: str, stream: str | None = "v:0") -> str:
+    cmd = ["ffprobe", "-v", "error"]
+    if stream:
+        cmd += ["-select_streams", stream]
+    cmd += ["-show_entries", entries, "-of", "default=nw=1:nk=1", str(video_path)]
+    proc = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=30, **cfg.no_window_kwargs()
+    )
+    return proc.stdout.strip().splitlines()[0].strip()
+
+
+def get_video_duration(video_path: Path) -> float:
+    """Return the video's duration in seconds using ffprobe. Falls back to 0.0."""
+    try:
+        return float(_ffprobe_field(video_path, "format=duration", stream=None))
+    except Exception:
+        return 0.0
+
+
+def get_audio_channels(video_path: Path) -> int:
+    """Return the audio channel count using ffprobe, or 0 when there is no audio
+    stream (ffprobe prints nothing, so the field lookup raises)."""
+    try:
+        return max(0, int(_ffprobe_field(video_path, "stream=channels", stream="a:0")))
+    except Exception:
+        return 0
+
+
+# ── Cut intervals ─────────────────────────────────────────────────────────────
+# These two functions mirror ClipComposition.tsx exactly (the `intervals` and
+# `effectiveCaptions` useMemos). Any change there must be mirrored here, otherwise
+# a Remotion render and a Premiere export of the same clip disagree on duration.
+
+def compute_keep_intervals(
+    start_sec: float, end_sec: float, cut_intervals: list[dict] | None
+) -> list[dict]:
+    """Turn cutIntervals (regions to remove) into the list of regions to keep."""
+    if not cut_intervals:
+        return [{"startSec": start_sec, "endSec": end_sec}]
+
+    sorted_cuts = sorted(
+        (
+            iv for iv in cut_intervals
+            if _finite(iv.get("startSec")) and _finite(iv.get("endSec"))
+            and iv["endSec"] > iv["startSec"]
+        ),
+        key=lambda iv: iv["startSec"],
+    )
+    if not sorted_cuts:
+        return [{"startSec": start_sec, "endSec": end_sec}]
+
+    keeps: list[dict] = []
+    cursor = start_sec
+    for cut in sorted_cuts:
+        # Clamp to the clip range so Studio's default {0,0} or out-of-range values
+        # can't move the cursor backward.
+        cut_start = max(cursor, min(end_sec, cut["startSec"]))
+        cut_end = max(cut_start, min(end_sec, cut["endSec"]))
+        if cut_start > cursor + 0.01:
+            keeps.append({"startSec": cursor, "endSec": cut_start})
+        cursor = cut_end
+    if cursor < end_sec - 0.01:
+        keeps.append({"startSec": cursor, "endSec": end_sec})
+
+    return keeps or [{"startSec": start_sec, "endSec": end_sec}]
+
+
+def _finite(x) -> bool:
+    return isinstance(x, (int, float)) and x == x and x not in (float("inf"), float("-inf"))
+
+
+def remap_captions_to_cuts(
+    captions: list[dict], keep_intervals: list[dict], start_sec: float
+) -> list[dict]:
+    """Shift clip-relative caption times so they line up after cut regions are removed."""
+    if len(keep_intervals) <= 1:
+        return captions
+
+    result: list[dict] = []
+    output_offset_ms = 0.0
+    for iv in keep_intervals:
+        iv_start_ms = (iv["startSec"] - start_sec) * 1000
+        iv_end_ms = (iv["endSec"] - start_sec) * 1000
+        for cap in captions:
+            if cap["endMs"] <= iv_start_ms or cap["startMs"] >= iv_end_ms:
+                continue
+            result.append({
+                **cap,
+                "startMs": output_offset_ms + max(0.0, cap["startMs"] - iv_start_ms),
+                "endMs": output_offset_ms + min(iv_end_ms - iv_start_ms, cap["endMs"] - iv_start_ms),
+            })
+        output_offset_ms += iv_end_ms - iv_start_ms
+    return result
+
+
 # ── Render ────────────────────────────────────────────────────────────────────
 
 def make_captions(
@@ -769,8 +993,7 @@ def render_clip(
         props_data["captionFont"] = clip["captionFont"]
     if clip.get("cutIntervals"):
         props_data["cutIntervals"] = clip["cutIntervals"]
-    if clip.get("theme"):
-        props_data["theme"] = clip["theme"]
+    props_data.update(theme_store.resolve_theme_props(clip.get("theme")))
     effect_count = sum(1 for c in props_data["captions"] if c.get("effect"))
     if effect_count:
         log(f"  ⚡ エフェクト付き字幕: {effect_count} 件")

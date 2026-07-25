@@ -8,40 +8,45 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #111;
-  --surface: #1c1c1e;
-  --surface2: #2c2c2e;
-  --border: #3a3a3c;
-  --text: #f5f5f7;
-  --muted: #8e8e93;
-  --accent: #ffd60a;
-  --accent-dim: rgba(255,214,10,.15);
-  --green: #30d158;
-  --red: #ff453a;
-  --blue: #0a84ff;
-  --r: 12px;
+  --bg: #F8F0F1;
+  --surface: #FFFFFF;
+  --surface2: #FAE6ED;
+  --border: #F0CDD9;
+  --text: #4A3540;
+  --muted: #9B7885;
+  --accent: #FF7FB0;
+  --accent-dim: rgba(255,127,176,.16);
+  --yellow: #FFC94D;
+  --yellow-dim: rgba(255,201,77,.22);
+  --yellow-strong: #C98A1F;
+  --green: #3DCB94;
+  --green-strong: #1E9A6C;
+  --red: #FF6B81;
+  --red-strong: #E0374F;
+  --blue: #7FDBF5;
+  --r: 18px;
 }
 
 body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size: 15px; }
 
 /* ── Layout ── */
-header { padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+header { padding: 18px 28px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
 header h1 { font-size: 20px; font-weight: 700; }
 header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
 
 main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; display: flex; flex-direction: column; gap: 16px; }
 
 /* ── Phase panel ── */
-.phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; transition: border-color .2s; }
-.phase.running { border-color: var(--accent); }
-.phase.done    { border-color: var(--green); }
-.phase.error   { border-color: var(--red); }
+.phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; box-shadow: 0 2px 12px rgba(74,53,64,.06); transition: border-color .2s, box-shadow .2s; }
+.phase.running { border-color: var(--yellow); box-shadow: 0 2px 14px rgba(255,201,77,.2); }
+.phase.done    { border-color: var(--green); box-shadow: 0 2px 14px rgba(61,203,148,.16); }
+.phase.error   { border-color: var(--red); box-shadow: 0 2px 14px rgba(255,107,129,.16); }
 
 .phase-hd {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 18px; cursor: pointer; user-select: none;
 }
-.phase-hd:hover { background: rgba(255,255,255,.03); }
+.phase-hd:hover { background: rgba(255,127,176,.06); }
 
 .phase-num {
   width: 28px; height: 28px; border-radius: 50%;
@@ -50,19 +55,19 @@ main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; display: flex;
   font-size: 12px; font-weight: 700; color: var(--muted); flex-shrink: 0;
   transition: all .2s;
 }
-.phase.running .phase-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-.phase.done    .phase-num { border-color: var(--green); background: var(--green); color: #000; }
-.phase.error   .phase-num { border-color: var(--red); background: var(--red); color: #fff; }
+.phase.running .phase-num { border-color: var(--yellow); color: var(--yellow-strong); box-shadow: 0 0 0 3px var(--yellow-dim); }
+.phase.done    .phase-num { border-color: var(--green); background: var(--green); color: var(--text); }
+.phase.error   .phase-num { border-color: var(--red); background: var(--red); color: var(--text); }
 
 .phase-title { font-weight: 600; font-size: 15px; flex: 1; }
 
 .phase-badge {
-  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 8px;
   background: var(--surface2); color: var(--muted);
 }
-.phase.running .phase-badge { background: var(--accent-dim); color: var(--accent); }
-.phase.done    .phase-badge { background: rgba(48,209,88,.15); color: var(--green); }
-.phase.error   .phase-badge { background: rgba(255,69,58,.15); color: var(--red); }
+.phase.running .phase-badge { background: var(--yellow-dim); color: var(--yellow-strong); }
+.phase.done    .phase-badge { background: rgba(61,203,148,.16); color: var(--green-strong); }
+.phase.error   .phase-badge { background: rgba(255,107,129,.16); color: var(--red-strong); }
 
 .chevron { color: var(--muted); font-size: 14px; transition: transform .2s; }
 .phase.collapsed .chevron { transform: rotate(-90deg); }
@@ -77,7 +82,7 @@ main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; display: flex;
 .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
 
 input[type=text], input[type=number], input[type=password], select, .file-wrap input {
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
   color: var(--text); font-size: 13px; padding: 8px 12px; outline: none;
   width: 100%; transition: border-color .15s;
 }
@@ -85,7 +90,7 @@ input:focus, select:focus { border-color: var(--accent); }
 
 select {
   appearance: none; cursor: pointer; padding-right: 28px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239B7885'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
 }
 
@@ -94,30 +99,31 @@ select {
 .file-wrap input  { flex: 1; }
 .file-wrap select { flex: 1; }
 .btn-refresh {
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
   color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 10px;
   transition: color .15s;
 }
-.btn-refresh:hover { color: var(--text); }
+.btn-refresh:hover { color: var(--accent); }
 
 /* ── Buttons ── */
-button { border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; padding: 9px 18px; transition: opacity .15s, transform .1s; }
+button { border: none; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600; padding: 9px 18px; transition: opacity .15s, transform .1s; }
 button:active { transform: scale(.97); }
 button:disabled { opacity: .4; cursor: not-allowed; }
 
-.btn-primary  { background: var(--accent); color: #000; }
+.btn-primary  { background: var(--accent); color: var(--text); }
 .btn-secondary{ background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-.btn-render   { background: var(--green); color: #000; }
-.btn-studio   { background: var(--blue); color: #fff; }
-.btn-danger   { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 10px; font-size: 11px; }
+.btn-render   { background: var(--green); color: var(--text); }
+.btn-studio   { background: var(--blue); color: var(--text); }
+.btn-export   { background: var(--yellow); color: var(--text); }
+.btn-danger   { background: transparent; color: var(--red-strong); border: 1px solid var(--red); padding: 4px 10px; font-size: 11px; }
 
 .phase-actions { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 
 /* ── Result chip ── */
 .result-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  background: rgba(48,209,88,.1); border: 1px solid rgba(48,209,88,.3);
-  border-radius: 6px; font-size: 12px; color: var(--green); padding: 5px 10px;
+  background: rgba(61,203,148,.12); border: 1px solid rgba(61,203,148,.35);
+  border-radius: 10px; font-size: 12px; color: var(--green-strong); padding: 5px 10px;
   font-family: monospace;
 }
 
@@ -125,14 +131,14 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .log-wrap { display: flex; flex-direction: column; gap: 8px; }
 .log-label { font-size: 12px; color: var(--muted); font-weight: 500; }
 .log-console {
-  background: #0a0a0a; border: 1px solid var(--border); border-radius: 8px;
+  background: #2A2028; border: 1px solid var(--border); border-radius: 12px;
   font-family: "SF Mono","Fira Code",monospace; font-size: 11.5px;
   height: 180px; overflow-y: auto; padding: 10px 14px; line-height: 1.65;
 }
-.log-line { color: #c8c8c8; white-space: pre-wrap; word-break: break-all; }
+.log-line { color: #E8DCE0; white-space: pre-wrap; word-break: break-all; }
 .log-line.ok  { color: var(--green); }
 .log-line.err { color: var(--red); }
-.log-line.sec { color: var(--accent); }
+.log-line.sec { color: var(--yellow); }
 
 /* ── Clip cards ── */
 .clips-hd { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
@@ -140,7 +146,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .clips-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 12px; }
 
 .clip-card {
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 16px;
   padding: 14px; display: flex; flex-direction: column; gap: 9px;
   transition: border-color .15s;
 }
@@ -160,43 +166,43 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .clip-times { display: flex; align-items: center; gap: 5px; }
 .clip-times input { width: 68px; font-size: 12px; padding: 4px 7px; text-align: center; }
 .clip-times span { color: var(--muted); font-size: 11px; }
-.dur-tag { background: var(--surface); border-radius: 4px; color: var(--muted); font-size: 11px; padding: 2px 6px; }
+.dur-tag { background: var(--surface); border-radius: 6px; color: var(--muted); font-size: 11px; padding: 2px 6px; }
 
 .clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .clip-foot { display: flex; justify-content: flex-end; }
 
 /* ── Downloads ── */
 .dl-list { display: flex; flex-direction: column; gap: 8px; }
-.dl-item { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.dl-item { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; }
 .dl-name { font-size: 12px; font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; padding: 5px 12px; text-decoration: none; flex-shrink: 0; }
+a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; font-size: 12px; font-weight: 600; padding: 5px 12px; text-decoration: none; flex-shrink: 0; }
 
 /* ── Misc ── */
 [hidden] { display: none !important; }
-.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
+.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--yellow); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.error-box { background: rgba(255,69,58,.1); border: 1px solid var(--red); border-radius: 8px; color: var(--red); font-size: 12px; padding: 10px 14px; }
+.error-box { background: rgba(255,107,129,.12); border: 1px solid var(--red); border-radius: 10px; color: var(--red-strong); font-size: 12px; padding: 10px 14px; }
 .sel-info { font-size: 11px; color: var(--muted); }
 
 /* ── Transcribe progress ── */
 .prog-block { display: flex; flex-direction: column; gap: 8px; }
 .prog-row { display: flex; flex-direction: column; gap: 4px; }
 .prog-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
-.prog-track { background: var(--surface2); border-radius: 4px; height: 6px; overflow: hidden; }
-.prog-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s ease; }
+.prog-track { background: var(--surface2); border-radius: 999px; height: 6px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease; }
 .prog-fill.green { background: var(--green); }
 
 /* ── Concat list ── */
 .concat-list {
   display: flex; flex-direction: column; gap: 6px;
   min-height: 52px; border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px;
+  border-radius: 12px; padding: 8px;
 }
 .concat-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 8px; }
 .concat-item {
   display: flex; align-items: center; gap: 8px;
   background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 6px; padding: 8px 10px;
+  border-radius: 10px; padding: 8px 10px;
   cursor: grab; user-select: none; transition: opacity .15s, border-color .1s;
 }
 .concat-item.dragging { opacity: .35; }
@@ -204,21 +210,21 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 .concat-handle { color: var(--muted); font-size: 16px; line-height: 1; flex-shrink: 0; }
 .concat-name { flex: 1; font-size: 12px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .concat-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 0 2px; line-height: 1; transition: color .1s; }
-.concat-remove:hover { color: var(--red); }
+.concat-remove:hover { color: var(--red-strong); }
 
 /* ── Drop overlay ── */
 #drop-overlay {
   position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0,0,0,.75);
+  background: rgba(74,53,64,.45);
   display: flex; align-items: center; justify-content: center;
   pointer-events: none; opacity: 0; transition: opacity .15s;
 }
 #drop-overlay.active { opacity: 1; pointer-events: auto; }
 .drop-box {
-  border: 3px dashed var(--accent); border-radius: 20px;
-  padding: 60px 80px; text-align: center; color: var(--accent);
+  border: 3px dashed var(--yellow); border-radius: 24px;
+  padding: 60px 80px; text-align: center; color: var(--yellow);
   font-size: 22px; font-weight: 700;
-  background: rgba(255,214,10,.07);
+  background: rgba(255,201,77,.14);
 }
 .drop-box small { display: block; margin-top: 10px; font-size: 13px; font-weight: 400; color: var(--muted); }
 </style>
@@ -232,7 +238,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   </div>
 </div>
 
-<div id="settings-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center">
+<div id="settings-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(74,53,64,.45);display:none;align-items:center;justify-content:center">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
     <h2 style="font-size:16px">API キー設定</h2>
     <div class="field">
@@ -258,13 +264,63 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   </div>
 </div>
 
+<div id="theme-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(74,53,64,.45);display:none;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:640px;max-width:92vw;max-height:88vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px">カラーテーマ編集</h2>
+      <button class="btn-secondary" onclick="closeThemeManager()">閉じる</button>
+    </div>
+    <div id="theme-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <button class="btn-secondary" onclick="openThemeEditor(null, false)" style="align-self:flex-start">+ 新規テーマ</button>
+
+    <div id="theme-editor" hidden style="border-top:1px solid var(--border);padding-top:16px;display:flex;flex-direction:column;gap:12px">
+      <div class="field">
+        <label>テーマ名</label>
+        <input type="text" id="te-label" placeholder="オリジナルテーマ">
+      </div>
+      <div class="field">
+        <label>タイトル背景（CSS の background 値。単色 / グラデーションどちらも指定可）</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="color" id="te-bg-color1" value="#ff1493" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション開始色">
+          <input type="color" id="te-bg-color2" value="#b200ff" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション終了色">
+          <button type="button" class="btn-secondary" style="font-size:11px;padding:6px 10px;flex-shrink:0" onclick="applyGradientPreset()">→ 反映</button>
+          <input type="text" id="te-bg" style="flex:1">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><label>タイトル文字色</label><input type="color" id="te-title-text"></div>
+        <div class="field"><label>タイトル縁取り色</label><input type="color" id="te-title-accent"></div>
+        <div class="field"><label>字幕文字色</label><input type="color" id="te-caption-text"></div>
+        <div class="field"><label>字幕強調文字色</label><input type="color" id="te-caption-active"></div>
+      </div>
+      <div class="field">
+        <label>字幕強調グロー <span style="opacity:.7">（不透明度 <b id="te-glow-alpha-val">50</b>%）</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="color" id="te-glow-color" style="width:38px;height:34px;padding:2px;flex-shrink:0">
+          <input type="range" id="te-glow-alpha" min="0" max="100" value="50" style="flex:1">
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">プレビュー</div>
+        <div id="theme-preview" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#151015"></div>
+      </div>
+      <div id="theme-editor-status" style="font-size:12px;color:var(--red-strong)"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn-secondary" onclick="closeThemeEditor()">キャンセル</button>
+        <button class="btn-primary" onclick="saveThemeEditor()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <header>
   <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-    <rect width="26" height="26" rx="7" fill="#ffd60a"/>
-    <polygon points="9,6 21,13 9,20" fill="#000"/>
+    <rect width="26" height="26" rx="9" fill="#FF7FB0"/>
+    <polygon points="9,6 21,13 9,20" fill="#4A3540"/>
   </svg>
   <div><h1>Kirinuki</h1><div class="sub">YouTube 切り抜き自動生成</div></div>
-  <button class="btn-secondary" id="settings-btn" onclick="openSettings()" style="margin-left:auto">⚙ 設定</button>
+  <button class="btn-secondary" id="theme-manager-btn" onclick="openThemeManager()" style="margin-left:auto">🎨 テーマ管理</button>
+  <button class="btn-secondary" id="settings-btn" onclick="openSettings()">⚙ 設定</button>
 </header>
 
 <main>
@@ -503,6 +559,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
           <span class="sel-info" id="ph4-sel-info"></span>
           <button class="btn-secondary" id="ph4-selall-btn" onclick="toggleSelectAll()">全選択</button>
           <button class="btn-studio" id="ph4-studio-btn" onclick="openInStudio()">🎬 Studio で確認</button>
+          <button class="btn-export" id="ph4-export-btn" onclick="exportPremiere()" title="構図・カット適用済みで字幕を焼き込まないmp4と、字幕ファイル(SRT)を書き出します。Premiere Pro などで字幕を自分で付ける用の素材です">📦 編集用に書き出し</button>
           <button class="btn-danger" id="ph4-cancel-btn" onclick="cancelPhase4()" hidden>中止</button>
           <button class="btn-render" id="ph4-render-btn" onclick="runPhase4()">▶ レンダリング</button>
         </div>
@@ -551,11 +608,9 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
 
 <script>
 // ── Color themes ──────────────────────────────────────────────────────────
-const CLIP_THEMES = {
-  yumeno: 'yumeno',
-  yumeno2: 'yumeno2',
-  heisei_girl: '平成女児',
-};
+// Populated from /api/themes (built-in + user-created custom themes). See
+// loadThemes() / buildClipCard() / refreshThemeSelects().
+let THEME_DATA = { default: 'yumeno', themes: {} };
 
 const CAPTION_FONTS = {
   mochiy: 'Mochiy Pop',
@@ -765,6 +820,7 @@ function openSSE(jobId, phaseNum, onState, onLog) {
         error: job.error,
         video_path: job.video_path,
         transcription_path: job.transcription_path,
+        export: job.export,
       }, { close: () => {} });
     } catch (_) {}
   };
@@ -1205,7 +1261,7 @@ function buildClipCard(clip, idx) {
   // Preserve fields that have no UI controls
   card.dataset.cutIntervals = JSON.stringify(clip.cutIntervals || null);
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
-  card.dataset.theme = clip.theme || 'yumeno';
+  card.dataset.theme = clip.theme || THEME_DATA.default;
   card.dataset.captionEffect = clip.captionEffect || '';
 
   // Auto-check vertical when source is portrait (unless the clip explicitly set vertical)
@@ -1262,7 +1318,7 @@ function buildClipCard(clip, idx) {
         <span>カラーテーマ</span>
       </div>
       <select class="clip-theme" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
-        ${Object.entries(CLIP_THEMES).map(([k, v]) => `<option value="${k}" ${(clip.theme || 'yumeno') === k ? 'selected' : ''}>${escHtml(v)}</option>`).join('')}
+        ${Object.entries(THEME_DATA.themes).map(([k, v]) => `<option value="${k}" ${(clip.theme || THEME_DATA.default) === k ? 'selected' : ''}>${escHtml(v.label)}</option>`).join('')}
       </select>
     </div>
     <div class="clip-reason">${escHtml(clip.reason || '')}</div>
@@ -1502,6 +1558,86 @@ function addDownloadResult(filename) {
   result.querySelector('.dl-list').appendChild(item);
 }
 
+// ── Editing-material export ────────────────────────────────────────────────
+// Writes a caption-free mp4 per clip (framing + cuts applied) plus a matching
+// SRT. Each clip is a full ffmpeg re-encode, so this runs in the background and
+// reports over SSE.
+function finishExport() {
+  document.getElementById('ph4-cancel-btn').hidden = true;
+  setBtnLoading('ph4-cancel-btn', false);
+  document.getElementById('ph4-cancel-btn').textContent = '中止';
+  setBtnLoading('ph4-export-btn', false);
+  document.getElementById('ph4-export-btn').textContent = '📦 編集用に書き出し';
+}
+
+async function exportPremiere() {
+  const jobId = phaseJob[4];
+  if (!jobId) { alert('先にクリップを読み込んでください'); return; }
+  if (!document.getElementById('p4-video').value) { alert('動画ファイルを選択してください'); return; }
+  if (!document.getElementById('p4-trans').value) { alert('文字起こしファイルを選択してください'); return; }
+
+  const indices = selectedGridIndices();
+  if (indices.length === 0) { alert('書き出すクリップを選択してください'); return; }
+
+  clearPhaseUI(4);
+  showLog(4);
+  setPhaseState(4, 'running');
+  setBtnLoading('ph4-export-btn', true, '書き出し中...');
+  document.getElementById('ph4-cancel-btn').hidden = false;
+
+  try {
+    // Push grid edits first so the export uses what's on screen, same as render.
+    await fetch(`/api/jobs/${jobId}/clips`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clips: readGridClips() }),
+    });
+
+    const res = await fetch(`/api/jobs/${jobId}/export-premiere`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ indices }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+
+    openSSE(jobId, 4, (msg, es) => {
+      if (msg.export) {
+        const d = msg.export;
+        const result = document.getElementById('ph4-result');
+        result.hidden = false;
+        result.innerHTML =
+          `<div class="dl-list"><div class="dl-item">`
+          + `<span class="dl-name">📦 ${escHtml(d.filename)}（${d.count} 件）</span>`
+          + `<a class="btn-dl" href="/api/exports/${encodeURIComponent(d.filename)}" download="${escHtml(d.filename)}">ダウンロード</a>`
+          + `</div></div>`
+          + `<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.6">`
+          + `各クリップの <code>mp4</code>（縦構図・カット適用済み、字幕なし）と、`
+          + `時間軸が一致する <code>srt</code> が入っています。`
+          + `Premiere Pro では mp4 をタイムラインにドラッグすると素材に合ったシーケンスが作られ、`
+          + `<code>*.srt</code> を <b>File &gt; Import</b> で読み込んでキャプショントラックに乗せれば、`
+          + `字幕の文字やスタイルを自由に編集できます。<br>`
+          + `保存先: <code>${escHtml(d.directory)}</code>`
+          + `</div>`;
+      }
+      if (msg.status === 'complete' || msg.status === 'canceled') {
+        setPhaseState(4, msg.status === 'complete' ? 'done' : 'idle');
+        finishExport();
+        es.close();
+      }
+      if (msg.status === 'error') {
+        setPhaseState(4, 'error');
+        showError(4, msg.error);
+        finishExport();
+        es.close();
+      }
+    });
+  } catch (err) {
+    setPhaseState(4, 'error');
+    showError(4, err.message);
+    finishExport();
+  }
+}
+
 // ── Studio ─────────────────────────────────────────────────────────────────
 async function openInStudio() {
   const videoFile = document.getElementById('p4-video').value;
@@ -1712,7 +1848,7 @@ async function uploadVideoFile(file) {
 
 function showUploadToast(name) {
   const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;max-width:320px';
+  el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 18px;font-size:13px;box-shadow:0 4px 20px rgba(74,53,64,.18);display:flex;align-items:center;gap:10px;max-width:320px';
   el.innerHTML = `<span class="spinner"></span><span>アップロード中: ${escHtml(name)}</span>`;
   document.body.appendChild(el);
   return {
@@ -1790,10 +1926,190 @@ async function saveSettings() {
   closeSettings();
 }
 
+// ── Theme manager ────────────────────────────────────────────────────────────
+async function loadThemes() {
+  const res = await fetch('/api/themes');
+  if (!res.ok) return;
+  THEME_DATA = await res.json();
+  refreshThemeSelects();
+}
+
+function refreshThemeSelects() {
+  document.querySelectorAll('#ph4-clips-grid .clip-theme').forEach(sel => {
+    const current = sel.value || sel.closest('.clip-card').dataset.theme;
+    sel.innerHTML = Object.entries(THEME_DATA.themes)
+      .map(([k, v]) => `<option value="${k}" ${current === k ? 'selected' : ''}>${escHtml(v.label)}</option>`)
+      .join('');
+    if (!THEME_DATA.themes[current]) sel.value = THEME_DATA.default;
+  });
+}
+
+function openThemeManager() {
+  document.getElementById('theme-overlay').style.display = 'flex';
+  closeThemeEditor();
+  renderThemeList();
+}
+
+function closeThemeManager() {
+  document.getElementById('theme-overlay').style.display = 'none';
+}
+
+function renderThemeList() {
+  const list = document.getElementById('theme-list');
+  list.innerHTML = Object.entries(THEME_DATA.themes).map(([id, t]) => {
+    const isDefault = id === THEME_DATA.default;
+    const sourceLabel = t.source === 'builtin' ? '組み込み' : (t.source === 'override' ? '組み込み（編集済み）' : 'カスタム');
+    return `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:8px">
+      <div style="width:64px;height:36px;border-radius:6px;flex-shrink:0;background:${t.titleBackground}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px">
+          <span>${escHtml(t.label)}</span>
+          ${isDefault ? '<span style="font-size:10px;padding:2px 7px;border-radius:999px;background:var(--accent-dim);color:var(--accent);font-weight:700">既定</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted)">${sourceLabel}</div>
+      </div>
+      ${!isDefault ? `<button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="setDefaultTheme('${id}')">既定にする</button>` : ''}
+      <button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="openThemeEditor('${id}')">編集</button>
+      ${t.source === 'override' ? `<button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="resetThemeItem('${id}')">元に戻す</button>` : ''}
+      ${t.source === 'custom' ? `<button class="btn-danger" onclick="deleteThemeItem('${id}')">削除</button>` : ''}
+    </div>
+  `;
+  }).join('');
+}
+
+async function setDefaultTheme(id) {
+  const res = await fetch(`/api/themes/default/${id}`, { method: 'PUT' });
+  if (!res.ok) return;
+  THEME_DATA = await res.json();
+  refreshThemeSelects();
+  renderThemeList();
+}
+
+async function resetThemeItem(id) {
+  if (!confirm('編集内容を破棄して組み込みの初期値に戻しますか？')) return;
+  const res = await fetch(`/api/themes/${id}/reset`, { method: 'POST' });
+  if (res.ok) {
+    await loadThemes();
+    renderThemeList();
+  }
+}
+
+let editingThemeId = null;
+
+function _rgbaToHexAlpha(glow) {
+  const m = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\)/.exec(glow || '');
+  if (!m) return { hex: '#ff4dae', alpha: 50 };
+  const [, r, g, b, a] = m;
+  const hex = '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(+v))).toString(16).padStart(2, '0')).join('');
+  return { hex, alpha: a != null ? Math.round(+a * 100) : 100 };
+}
+
+function _hexToRgb(hex) {
+  const v = (hex || '#000000').replace('#', '');
+  return [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
+}
+
+function openThemeEditor(themeId) {
+  document.getElementById('theme-editor').hidden = false;
+  document.getElementById('theme-editor-status').textContent = '';
+  const t = themeId ? THEME_DATA.themes[themeId] : null;
+  editingThemeId = themeId || null;
+
+  document.getElementById('te-label').value = t ? t.label : '';
+  document.getElementById('te-bg').value = t ? t.titleBackground : 'linear-gradient(to right, #FF1493 0%, #B200FF 100%)';
+  document.getElementById('te-title-text').value = t ? t.titleTextColor : '#FFFFFF';
+  document.getElementById('te-title-accent').value = t ? t.titleAccentColor : '#880055';
+  document.getElementById('te-caption-text').value = t ? t.captionTextColor : '#FFFFFF';
+  document.getElementById('te-caption-active').value = t ? t.captionActiveColor : '#FF4DB3';
+  const glow = _rgbaToHexAlpha(t ? t.captionActiveGlow : 'rgba(255, 77, 179, 0.6)');
+  document.getElementById('te-glow-color').value = glow.hex;
+  document.getElementById('te-glow-alpha').value = glow.alpha;
+  document.getElementById('te-glow-alpha-val').textContent = glow.alpha;
+
+  updateThemePreview();
+  document.getElementById('theme-editor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeThemeEditor() {
+  document.getElementById('theme-editor').hidden = true;
+  editingThemeId = null;
+}
+
+function applyGradientPreset() {
+  const c1 = document.getElementById('te-bg-color1').value;
+  const c2 = document.getElementById('te-bg-color2').value;
+  document.getElementById('te-bg').value = `linear-gradient(to right, ${c1} 0%, ${c2} 100%)`;
+  updateThemePreview();
+}
+
+function collectThemeForm() {
+  const [r, g, b] = _hexToRgb(document.getElementById('te-glow-color').value);
+  const alpha = (+document.getElementById('te-glow-alpha').value / 100).toFixed(2);
+  return {
+    label: document.getElementById('te-label').value.trim(),
+    titleBackground: document.getElementById('te-bg').value.trim(),
+    titleTextColor: document.getElementById('te-title-text').value,
+    titleAccentColor: document.getElementById('te-title-accent').value,
+    captionTextColor: document.getElementById('te-caption-text').value,
+    captionActiveColor: document.getElementById('te-caption-active').value,
+    captionActiveGlow: `rgba(${r}, ${g}, ${b}, ${alpha})`,
+  };
+}
+
+function updateThemePreview() {
+  const t = collectThemeForm();
+  document.getElementById('te-glow-alpha-val').textContent = document.getElementById('te-glow-alpha').value;
+  document.getElementById('theme-preview').innerHTML = `
+    <div style="padding:14px 16px;background:${t.titleBackground}">
+      <span style="font-weight:900;font-size:20px;color:${t.titleTextColor};-webkit-text-stroke:2px ${t.titleAccentColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">サンプルタイトル</span>
+    </div>
+    <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;font-weight:900;font-size:22px">
+      <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">これは</span>
+      <span style="color:${t.captionActiveColor};text-shadow:3px 3px 0 ${t.titleAccentColor}, 0 0 12px ${t.captionActiveGlow}">字幕</span>
+      <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">プレビューです</span>
+    </div>
+  `;
+}
+
+document.getElementById('theme-editor').addEventListener('input', updateThemePreview);
+
+async function saveThemeEditor() {
+  const data = collectThemeForm();
+  if (!data.label) {
+    document.getElementById('theme-editor-status').textContent = 'テーマ名を入力してください';
+    return;
+  }
+  const url = editingThemeId ? `/api/themes/${editingThemeId}` : '/api/themes';
+  const method = editingThemeId ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    document.getElementById('theme-editor-status').textContent = '保存に失敗しました';
+    return;
+  }
+  await loadThemes();
+  renderThemeList();
+  closeThemeEditor();
+}
+
+async function deleteThemeItem(id) {
+  if (!confirm('このテーマを削除しますか？ このテーマを使用中のクリップは既定テーマにフォールバックします。')) return;
+  const res = await fetch(`/api/themes/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    await loadThemes();
+    renderThemeList();
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 initAllFileLists();
 refreshSettingsBanner();
 onTransModelChange();
+loadThemes();
 </script>
 </body>
 </html>

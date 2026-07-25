@@ -6,15 +6,25 @@ import {
   useCurrentFrame,
   useVideoConfig,
   Audio,
+  delayRender,
+  continueRender,
+  getRemotionEnvironment,
+  Solid,
 } from "remotion";
 import { Video } from "@remotion/media";
 import { createTikTokStyleCaptions } from "@remotion/captions";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { z } from "zod";
 import { CaptionPage } from "./CaptionPage";
 import { makeCaptions } from "./utils";
 import { THEMES, DEFAULT_THEME_KEY } from "./themes";
 import type { ClipTheme } from "./themes";
+import {
+  CAPTION_EFFECTS,
+  CAPTION_FONT_KEYS,
+  CAPTION_FONT_PRESETS,
+  type CaptionEffect,
+} from "./captionStyles";
 import studioData from "./studioData.json";
 import popSound from "../public/Onoma-Pop04.mp3";
 
@@ -24,11 +34,24 @@ const captionSchema = z.object({
   text: z.string().describe("字幕テキスト（先頭スペースでページ区切り）"),
   startMs: z.number().describe("開始時間 ms（クリップ先頭基準）"),
   endMs: z.number().describe("終了時間 ms（クリップ先頭基準）"),
+  effect: z.enum([...CAPTION_EFFECTS, "emphasis"])
+    .optional()
+    .describe("エフェクト種別（emphasis は旧データ互換のみ）"),
 });
 
-const keepIntervalSchema = z.object({
-  startSec: z.number().describe("区間開始秒（動画絶対時間）"),
-  endSec: z.number().describe("区間終了秒（動画絶対時間）"),
+const cutIntervalSchema = z.object({
+  startSec: z.number().describe("カット開始秒（動画絶対時間）"),
+  endSec: z.number().describe("カット終了秒（動画絶対時間）"),
+});
+
+const themeColorsSchema = z.object({
+  label: z.string(),
+  titleBackground: z.string(),
+  titleTextColor: z.string(),
+  titleAccentColor: z.string(),
+  captionTextColor: z.string(),
+  captionActiveColor: z.string(),
+  captionActiveGlow: z.string(),
 });
 
 export const clipSchema = z.object({
@@ -57,12 +80,36 @@ export const clipSchema = z.object({
     .max(100)
     .optional()
     .describe("顔 cam 縦位置 % (0=上端 50=中央 100=下端、デフォルト 50)"),
+  mainZoom: z
+    .number()
+    .min(0.5)
+    .max(8)
+    .optional()
+    .describe("split上段ズーム率（デフォルト 1.0）"),
+  mainCropX: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe("split上段水平位置 % (0=左端 50=中央 100=右端、デフォルト 50)"),
+  mainCropY: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe("split上段垂直位置 % (0=上端 50=中央 100=下端、デフォルト 50)"),
+  splitTopRatio: z
+    .number()
+    .min(1)
+    .max(9)
+    .optional()
+    .describe("二段構成の上段高さ割合 (1〜9、下段は 10-この値、デフォルト 5)"),
   title: z.string().describe("クリップタイトル（縦動画上部に常時表示）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
-  keepIntervals: z
-    .array(keepIntervalSchema)
+  cutIntervals: z
+    .array(cutIntervalSchema)
     .optional()
-    .describe("有音区間リスト（無音カット用）"),
+    .describe("カット区間リスト（指定区間を動画から除去する）"),
   srcAspect: z
     .number()
     .min(0.1)
@@ -75,23 +122,36 @@ export const clipSchema = z.object({
     .max(200)
     .optional()
     .describe("字幕フォントサイズ（px）"),
+  captionFont: z
+    .enum(CAPTION_FONT_KEYS)
+    .optional()
+    .describe("字幕フォントプリセット"),
+  captionEffect: z
+    .enum(CAPTION_EFFECTS)
+    .optional()
+    .describe("クリップ提案時に選ばれた字幕基本エフェクト"),
   theme: z.string().optional().describe("カラーテーマ名"),
+  themeColors: themeColorsSchema
+    .optional()
+    .describe("カラーテーマの色定義を直接指定（カスタムテーマ用。指定時は theme キーより優先）"),
 });
 
 export type ClipProps = z.infer<typeof clipSchema>;
+type EffectRange = { startMs: number; endMs: number; type: string };
 
 export const defaultClipProps: ClipProps = {
-  videoSrc: "n7gHr7vBc08_first15min.mp4",
+  videoSrc: "",
   startSec: 0,
   endSec: 10,
-  vertical: false,
+  vertical: true,
   verticalMode: "crop",
-  cropX: 85,
-  faceCamZoom: 1.5,
-  faceCamY: 50,
+  cropX: 93,
+  faceCamZoom: 2,
+  faceCamY: 100,
   title: "",
   captions: [],
   captionFontSize: 96,
+  captionFont: "mochiy",
 };
 
 // ── Metadata ──────────────────────────────────────────────────────────────────
@@ -100,9 +160,14 @@ export const calculateMetadata: CalculateMetadataFunction<ClipProps> = ({
   props,
 }) => {
   const fps = 30;
-  const durationSec = props.keepIntervals?.length
-    ? props.keepIntervals.reduce((sum, iv) => sum + (iv.endSec - iv.startSec), 0)
-    : props.endSec - props.startSec;
+  const totalSec = props.endSec - props.startSec;
+  const cutSec = props.cutIntervals?.length
+    ? props.cutIntervals.reduce((sum, iv) => {
+        const dur = iv.endSec - iv.startSec;
+        return sum + (Number.isFinite(dur) && dur > 0 ? dur : 0);
+      }, 0)
+    : 0;
+  const durationSec = Math.max(0.1, totalSec - cutSec);
   return {
     durationInFrames: Math.max(1, Math.round(durationSec * fps)),
     fps,
@@ -117,15 +182,53 @@ const COMBINE_TOKENS_MS = 0;
 const SAFE_AREA_TOP = 40;
 const VERTICAL_PADDING = 12;
 const TITLE_H_PADDING = 4;
-// クロップモードの字幕下マージン（概要欄オーバーレイを避けるため大きめに）
 const CROP_CAPTION_PADDING_BOTTOM = 260;
 const DEFAULT_SRC_ASPECT = 16 / 9;
 
-const GOOGLE_FONT = `@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700;900&display=swap');`;
+const GOOGLE_FONT_URL =
+  "https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@700&family=Dela+Gothic+One&family=Kaisei+Decol:wght@700&family=M+PLUS+1p:wght@800;900&family=M+PLUS+Rounded+1c:wght@700;900&family=Mochiy+Pop+One&family=Noto+Sans+JP:wght@700;900&family=RocknRoll+One&family=Zen+Maru+Gothic:wght@700;900&display=swap";
+
+function useFontsReady() {
+  const [handle] = useState(() => delayRender("Loading Google Fonts"));
+  useEffect(() => {
+    let cancelled = false;
+    fetch(GOOGLE_FONT_URL)
+      .then((r) => r.text())
+      .then((css) => {
+        if (cancelled) return;
+        const style = document.createElement("style");
+        style.textContent = css;
+        document.head.appendChild(style);
+        return Promise.all(
+          Object.values(CAPTION_FONT_PRESETS).map((preset) =>
+            document.fonts.load(`${preset.weight} 1em ${preset.primaryFamily}`),
+          ),
+        );
+      })
+      .catch(() => { })
+      .finally(() => {
+        if (!cancelled) continueRender(handle);
+      });
+    return () => { cancelled = true; };
+  }, [handle]);
+}
 
 type StudioSegment = { start?: number; end?: number; text?: string };
 
-// ── Jump cut helper (Remotion snippet approach) ───────────────────────────────
+// ── Panic effect helpers ──────────────────────────────────────────────────────
+
+function getPanicIntensity(currentMs: number, ranges: EffectRange[]): number {
+  const RAMP_MS = 300;
+  for (const r of ranges) {
+    if (r.type !== "panic" || currentMs < r.startMs || currentMs >= r.endMs) continue;
+    const raw = Math.min(1, (currentMs - r.startMs) / RAMP_MS, (r.endMs - currentMs) / RAMP_MS);
+    // cosine ease-in-out for smooth ramp
+    return (1 - Math.cos(raw * Math.PI)) / 2;
+  }
+  return 0;
+}
+
+// ── Jump cut helper ───────────────────────────────────────────────────────────
 
 function computeTrimBefore(
   frame: number,
@@ -137,31 +240,56 @@ function computeTrimBefore(
     const sectionFrames = Math.round((iv.endSec - iv.startSec) * fps);
     summedUpDurations += sectionFrames;
     if (summedUpDurations > frame) {
-      // trimBefore so that (trimBefore + compositionFrame) = correct video frame
-      return Math.round(iv.endSec * fps) - summedUpDurations;
+      return Math.max(0, Math.round(iv.endSec * fps) - summedUpDurations);
     }
   }
-  // Past the end — hold at last frame
   const last = intervals[intervals.length - 1];
-  return Math.round(last.startSec * fps);
+  return Math.max(0, Math.round(last.startSec * fps));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// CJK = 1.0em, ASCII (codepoint < 256) = 0.55em
+function getEffectiveWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    w += (ch.codePointAt(0) ?? 0) < 256 ? 0.55 : 1.0;
+  }
+  return w;
+}
+
+// 1行に収まらない場合のみ、最長行のemが最小になる分割点を探す
+function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number): string {
+  if (title.includes("\n")) return title;
+  const totalEm = getEffectiveWidth(title);
+  if (totalEm * maxFontPx <= usableWidth) return title;
+  let bestIdx = 1;
+  let bestMax = Infinity;
+  for (let i = 1; i < title.length; i++) {
+    const leftEm = getEffectiveWidth(title.slice(0, i));
+    const maxEm = Math.max(leftEm, totalEm - leftEm);
+    if (maxEm < bestMax) {
+      bestMax = maxEm;
+      bestIdx = i;
+    }
+  }
+  return `${title.slice(0, bestIdx)}\n${title.slice(bestIdx)}`;
+}
+
+const MIN_TITLE_BAR_H = 280;
+
 function calcTitleBar(title: string, containerWidth: number) {
   if (!title) return { titleBarHeight: 0, titleFontSize: 0 };
   const lines = title.split("\n");
-  const longestLen = lines.reduce((m, l) => Math.max(m, l.length), 0);
-  // Single-line titles: treat as 2-line baseline so font wraps rather than spanning full width
-  const charsPerLine = lines.length >= 2 ? longestLen : title.length / 2;
   const usableWidth = containerWidth - TITLE_H_PADDING * 2;
-  const fsByWidth = charsPerLine > 0 ? usableWidth / charsPerLine : 140;
-  const fsByTotal = 2000 / title.length;
-  const titleFontSize = Math.min(140, Math.floor(fsByWidth), Math.floor(fsByTotal));
-  const autoWrapLines = Math.ceil((title.length * titleFontSize) / usableWidth);
+  const effectiveLongest = lines.reduce((m, l) => Math.max(m, getEffectiveWidth(l)), 0);
+  const fsByWidth = effectiveLongest > 0 ? usableWidth / effectiveLongest : 140;
+  const titleFontSize = Math.min(140, Math.floor(fsByWidth));
+  const autoWrapLines = Math.ceil((effectiveLongest * titleFontSize) / usableWidth);
   const estimatedLines = Math.max(lines.length, autoWrapLines, 2);
-  const titleBarHeight = Math.round(
-    titleFontSize * 1.3 * estimatedLines + VERTICAL_PADDING * 2 + SAFE_AREA_TOP,
+  const titleBarHeight = Math.max(
+    MIN_TITLE_BAR_H,
+    Math.round(titleFontSize * 1.2 * estimatedLines + VERTICAL_PADDING * 2),
   );
   return { titleBarHeight, titleFontSize };
 }
@@ -169,7 +297,14 @@ function calcTitleBar(title: string, containerWidth: number) {
 function renderCaptionPages(
   pages: ReturnType<typeof createTikTokStyleCaptions>["pages"],
   fps: number,
-  options?: { paddingBottomOverride?: number; topOffset?: number; captionFontSize?: number; theme?: ClipTheme },
+  captions: ClipProps["captions"],
+  options?: {
+    paddingBottomOverride?: number;
+    topOffset?: number;
+    captionFontSize?: number;
+    captionFont?: ClipProps["captionFont"];
+    theme?: ClipTheme;
+  },
 ) {
   return pages.map((page, i) => {
     const startFrame = Math.round((page.startMs / 1000) * fps);
@@ -179,14 +314,31 @@ function renderCaptionPages(
       : startFrame + fps;
     const dur = endFrame - startFrame;
     if (dur <= 0) return null;
+    // ページ開始時刻と重なるキャプションのエフェクトを採用
+    const matchCaption = captions.find(c => c.startMs <= page.startMs && c.endMs > page.startMs);
+    const effect =
+      matchCaption?.effect && matchCaption.effect !== "emphasis"
+        ? (matchCaption.effect as CaptionEffect)
+        : undefined;
+    const isLastPage = i === pages.length - 1;
+    const suffix = effect === "sad" && isLastPage ? "😭" : undefined;
     return (
-      <Sequence key={i} from={startFrame} durationInFrames={dur}>
+      <Sequence
+        key={i}
+        from={startFrame}
+        durationInFrames={dur}
+        style={{
+          translate: "0px -92.7px"
+        }}>
         <CaptionPage
           page={page}
           paddingBottomOverride={options?.paddingBottomOverride}
           topOffset={options?.topOffset}
           captionFontSize={options?.captionFontSize}
+          captionFont={options?.captionFont}
           theme={options?.theme}
+          effect={effect}
+          suffix={suffix}
         />
       </Sequence>
     );
@@ -198,11 +350,13 @@ function TitleBar({
   titleFontSize,
   titleBarHeight,
   theme,
+  topOffset = 0,
 }: {
   title: string;
   titleFontSize: number;
   titleBarHeight: number;
   theme: ClipTheme;
+  topOffset?: number;
 }) {
   return (
     <AbsoluteFill
@@ -211,10 +365,11 @@ function TitleBar({
       <Audio src={popSound} />
       <div
         style={{
+          marginTop: topOffset,
           width: "100%",
           height: titleBarHeight,
           background: theme.titleBackground,
-          padding: `${SAFE_AREA_TOP + VERTICAL_PADDING}px ${TITLE_H_PADDING}px ${VERTICAL_PADDING}px`,
+          padding: `${VERTICAL_PADDING}px ${TITLE_H_PADDING}px`,
           textAlign: "center",
           display: "flex",
           alignItems: "center",
@@ -254,40 +409,59 @@ export const ClipComposition: React.FC<ClipProps> = ({
   cropX,
   faceCamZoom,
   faceCamY,
+  mainZoom,
+  mainCropX,
+  mainCropY,
+  splitTopRatio,
   title,
   captions,
-  keepIntervals,
+  cutIntervals,
   srcAspect,
   captionFontSize,
+  captionFont,
   theme: themeKey,
+  themeColors,
 }) => {
+  useFontsReady();
+
   const SRC_ASPECT = srcAspect ?? DEFAULT_SRC_ASPECT;
-  const theme = THEMES[themeKey ?? DEFAULT_THEME_KEY] ?? THEMES[DEFAULT_THEME_KEY];
+  const theme =
+    themeColors ?? THEMES[themeKey ?? DEFAULT_THEME_KEY] ?? THEMES[DEFAULT_THEME_KEY];
 
   const { fps, width, height } = useVideoConfig();
   const frame = useCurrentFrame();
   const isVertical = height > width;
 
-  // Normalise intervals: when keepIntervals is absent, treat the whole clip as one interval
-  const intervals = useMemo(
-    () => (keepIntervals?.length ? keepIntervals : [{ startSec, endSec }]),
-    [keepIntervals, startSec, endSec],
-  );
+  const intervals = useMemo(() => {
+    if (!cutIntervals?.length) return [{ startSec, endSec }];
+    const sorted = [...cutIntervals]
+      .filter((iv) => Number.isFinite(iv.startSec) && Number.isFinite(iv.endSec) && iv.endSec > iv.startSec)
+      .sort((a, b) => a.startSec - b.startSec);
+    if (!sorted.length) return [{ startSec, endSec }];
+    const keeps: { startSec: number; endSec: number }[] = [];
+    let cursor = startSec;
+    for (const cut of sorted) {
+      // Clamp to clip range so Studio's default {0,0} or out-of-range values can't move cursor backward
+      const cutStart = Math.max(cursor, Math.min(endSec, cut.startSec));
+      const cutEnd = Math.max(cutStart, Math.min(endSec, cut.endSec));
+      if (cutStart > cursor + 0.01) keeps.push({ startSec: cursor, endSec: cutStart });
+      cursor = cutEnd;
+    }
+    if (cursor < endSec - 0.01) keeps.push({ startSec: cursor, endSec });
+    return keeps.length > 0 ? keeps : [{ startSec, endSec }];
+  }, [cutIntervals, startSec, endSec]);
 
-  // Jump cut: single trimBefore value for the current frame (Remotion snippet approach)
   const trimBefore = useMemo(
     () => computeTrimBefore(frame, intervals, fps),
     [frame, intervals, fps],
   );
 
-  // Raw captions are always relative to startSec (full clip range)
-  const rawCaptions = useMemo(() => {
+  const rawCaptions = useMemo((): ClipProps["captions"] => {
     if (captions.length > 0) return captions;
     const segs = (studioData as { segments: StudioSegment[] }).segments;
-    return makeCaptions(segs, startSec, endSec);
+    return makeCaptions(segs, startSec, endSec) as ClipProps["captions"];
   }, [captions, startSec, endSec]);
 
-  // Remap captions onto the output timeline when keepIntervals collapses silent gaps
   const effectiveCaptions = useMemo(() => {
     if (intervals.length <= 1) return rawCaptions;
     const result: typeof rawCaptions = [];
@@ -308,6 +482,15 @@ export const ClipComposition: React.FC<ClipProps> = ({
     return result;
   }, [rawCaptions, intervals, startSec]);
 
+  // キャプションのエフェクトフィールドからvignette用レンジを導出
+  const effectiveEffectRanges = useMemo<EffectRange[]>(
+    () =>
+      effectiveCaptions
+        .filter((c) => !!c.effect)
+        .map((c) => ({ startMs: c.startMs, endMs: c.endMs, type: c.effect! })),
+    [effectiveCaptions],
+  );
+
   const { pages } = useMemo(
     () =>
       createTikTokStyleCaptions({
@@ -321,39 +504,53 @@ export const ClipComposition: React.FC<ClipProps> = ({
     [effectiveCaptions],
   );
 
-  const { titleBarHeight, titleFontSize } = calcTitleBar(title, width);
+  const displayTitle = useMemo(
+    () => (title ? autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140) : title),
+    [title, width],
+  );
+  const { titleBarHeight, titleFontSize } = calcTitleBar(displayTitle, width);
 
-  // ── 横動画 ────────────────────────────────────────────────────────────────────
+  // ショート動画の上下5%セーフエリア（サムネイルクロップ対策）
+  const shortsSafeTop = isVertical ? Math.round(height * 0.05) : 0;
+
+  // ── Panic vignette (text effects are handled in CaptionPage) ─────────────
+  const currentMs = (frame / fps) * 1000;
+  const panicIntensity = getPanicIntensity(currentMs, effectiveEffectRanges);
+
+  const captionOptions = {
+    captionFontSize,
+    captionFont,
+    theme,
+  };
+
+  // ── Build layout content ──────────────────────────────────────────────────
+  const hasVideo = Boolean(videoSrc);
+  let content: React.ReactNode;
+
   if (!isVertical) {
-    return (
+    // 横動画
+    content = (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
-        <style>{GOOGLE_FONT}</style>
-        <Video
+        {hasVideo && <Video
           src={staticFile(videoSrc)}
           style={{ width: "100%", height: "100%", objectFit: "contain" }}
           trimBefore={trimBefore}
-        />
-        <AbsoluteFill>{renderCaptionPages(pages, fps, { captionFontSize, theme })}</AbsoluteFill>
+        />}
+        <AbsoluteFill>{renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}</AbsoluteFill>
       </AbsoluteFill>
     );
-  }
-
-  // ── 縦動画: クロップモード ────────────────────────────────────────────────────
-  // 動画をフレーム全体に広げ、タイトルバーは上端にオーバーレイ（アスペクト比を保持）
-  if (verticalMode === "crop") {
+  } else if (verticalMode === "crop") {
+    // 縦動画: クロップモード
     const cropZoom = faceCamZoom ?? 1.0;
     const scaledH = Math.round(height * cropZoom);
     const scaledW = Math.round(scaledH * SRC_ASPECT);
     const topOffset = -Math.round((scaledH - height) * ((faceCamY ?? 50) / 100));
     const leftOffset = -Math.round((scaledW - width) * (cropX / 100));
 
-    return (
+    content = (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
-        <style>{GOOGLE_FONT}</style>
-
-        {/* メイン動画: クロップ（zoom/Y適用） */}
         <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
-          <Video
+          {hasVideo && <Video
             src={staticFile(videoSrc)}
             style={{
               position: "absolute",
@@ -363,101 +560,134 @@ export const ClipComposition: React.FC<ClipProps> = ({
               left: leftOffset,
             }}
             trimBefore={trimBefore}
-          />
+          />}
         </div>
-
-        {/* タイトルバー: 動画の上にオーバーレイ */}
-        {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} />}
-
+        {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, { paddingBottomOverride: CROP_CAPTION_PADDING_BOTTOM, captionFontSize, theme })}
+          {renderCaptionPages(pages, fps, effectiveCaptions, { ...captionOptions, paddingBottomOverride: CROP_CAPTION_PADDING_BOTTOM })}
+        </AbsoluteFill>
+      </AbsoluteFill>
+    );
+  } else {
+    // 縦動画: 二段構成モード
+    const mainVideoTop = shortsSafeTop + titleBarHeight;
+    const topRatio = splitTopRatio ?? 5;
+    const mainVideoH = Math.round((height - mainVideoTop) * topRatio / 10);
+    const bottomTop = mainVideoTop + mainVideoH;
+    const bottomH = height - bottomTop;
+
+    // 上段: ズーム＆位置制御
+    const mainInnerH = Math.round(mainVideoH * (mainZoom ?? 1.0));
+    const mainInnerW = Math.round(mainInnerH * SRC_ASPECT);
+    const mainVideoVideoTop = -Math.round((mainInnerH - mainVideoH) * ((mainCropY ?? 50) / 100));
+    const rawMainLeft = Math.round(width / 2 - mainInnerW * ((mainCropX ?? 50) / 100));
+    const mainVideoVideoLeft = Math.max(-(mainInnerW - width), Math.min(0, rawMainLeft));
+
+    // 下部は全幅で埋めて黒枠をなくす
+    const faceCamInnerH = Math.round(bottomH * (faceCamZoom ?? 1.5));
+    const faceCamInnerW = Math.round(faceCamInnerH * SRC_ASPECT);
+    const faceCamVideoTop = -Math.round((faceCamInnerH - bottomH) * ((faceCamY ?? 50) / 100));
+    const rawFaceLeft = Math.round(width / 2 - faceCamInnerW * (cropX / 100));
+    const faceCamVideoLeft = Math.max(-(faceCamInnerW - width), Math.min(0, rawFaceLeft));
+
+    const captionTopOffset = bottomTop + 24;
+
+    content = (
+      <AbsoluteFill style={{ backgroundColor: "#111" }}>
+        <div
+          style={{
+            position: "absolute",
+            top: mainVideoTop,
+            left: 0,
+            width,
+            height: mainVideoH,
+            overflow: "hidden",
+          }}
+        >
+          {hasVideo && <Video
+            src={staticFile(videoSrc)}
+            style={{
+              position: "absolute",
+              width: mainInnerW,
+              height: mainInnerH,
+              top: mainVideoVideoTop,
+              left: mainVideoVideoLeft,
+              translate: "116.7px 23.2px",
+              rotate: "-0.1deg",
+              scale: 1.007
+            }}
+            trimBefore={trimBefore}
+            from={-228} />}
+        </div>
+        {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
+        <div
+          style={{
+            position: "absolute",
+            top: bottomTop,
+            left: 0,
+            width,
+            height: bottomH,
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ position: "relative", width, height: bottomH }}>
+            {hasVideo && <Video
+              src={staticFile(videoSrc)}
+              style={{
+                position: "absolute",
+                width: faceCamInnerW,
+                height: faceCamInnerH,
+                top: faceCamVideoTop,
+                left: faceCamVideoLeft
+              }}
+              trimBefore={trimBefore}
+              muted />}
+          </div>
+        </div>
+        <AbsoluteFill>
+          {renderCaptionPages(pages, fps, effectiveCaptions, { ...captionOptions, topOffset: captionTopOffset })}
         </AbsoluteFill>
       </AbsoluteFill>
     );
   }
 
-  // ── 縦動画: 二段構成モード ────────────────────────────────────────────────────
-  // 上段: 16:9 動画そのまま全幅
-  // 中段: 字幕ストリップ
-  // 下段: cropX% を中心にズームした顔 cam 円形（最大サイズ）
-  const mainVideoH = Math.round(width * (9 / 16)); // 1080 × 9/16 = 607
-  const bottomTop = titleBarHeight + mainVideoH;
-  const bottomH = height - bottomTop;
+  const absoluteSec = ((frame / fps) + startSec).toFixed(1);
+  const relativeMs = Math.round((frame / fps) * 1000);
+  const isStudio = getRemotionEnvironment().isStudio;
 
-  // 顔 cam サイズ: ボトムエリア全体を使用（字幕はオーバーレイ）
-  const faceCamSize = Math.min(bottomH - 8, width - 8);
-  const faceLeft = Math.round((width - faceCamSize) / 2);
-  const faceTop = bottomTop + Math.round((bottomH - faceCamSize) / 2);
-
-  // 顔 cam 内部の動画: faceCamZoom 率で縦横拡大
-  const faceCamInnerH = Math.round(faceCamSize * (faceCamZoom ?? 1.5));
-  const faceCamInnerW = Math.round(faceCamInnerH * (16 / 9));
-  // faceCamY% の行が円の中央に来るよう縦オフセット
-  const faceCamVideoTop = -Math.round((faceCamInnerH - faceCamSize) * ((faceCamY ?? 50) / 100));
-  // cropX% の位置を顔 cam 横中央に揃える
-  const rawFaceLeft = Math.round(faceCamSize / 2 - faceCamInnerW * (cropX / 100));
-  const faceCamVideoLeft = Math.max(-(faceCamInnerW - faceCamSize), Math.min(0, rawFaceLeft));
-
-  // 字幕: 顔 cam エリアの上端に上から固定（複数行でも上動画に重ならない）
-  const captionTopOffset = faceTop + 24;
-
+  // ── Wrap with vignette (panic only, subtle) ──────────────────────────────
   return (
-    <AbsoluteFill style={{ backgroundColor: "#111" }}>
-      <style>{GOOGLE_FONT}</style>
-
-      {/* 上段: 16:9 動画全幅 */}
-      <div
-        style={{
+    <AbsoluteFill style={{ overflow: "hidden" }}>
+      {content}
+      {isStudio && (
+        <div style={{
           position: "absolute",
-          top: titleBarHeight,
-          left: 0,
-          width,
-          height: mainVideoH,
-          overflow: "hidden",
-        }}
-      >
-        <Video
-          src={staticFile(videoSrc)}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          trimBefore={trimBefore}
-        />
-      </div>
-
-      {/* タイトルバー */}
-      {title && <TitleBar title={title} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} />}
-
-      {/* 下段: 顔 cam (絶対配置でズーム) */}
-      <div
-        style={{
-          position: "absolute",
-          top: faceTop,
-          left: faceLeft,
-          width: faceCamSize,
-          height: faceCamSize,
-          overflow: "hidden",
-          boxShadow: "0 12px 48px rgba(0,0,0,0.65)",
-        }}
-      >
-        {/* position:relative なコンテナの中で Video を絶対配置してズーム */}
-        <div style={{ position: "relative", width: faceCamSize, height: faceCamSize }}>
-          <Video
-            src={staticFile(videoSrc)}
-            style={{
-              position: "absolute",
-              width: faceCamInnerW,
-              height: faceCamInnerH,
-              top: faceCamVideoTop,
-              left: faceCamVideoLeft,
-            }}
-            trimBefore={trimBefore}
-          />
+          top: 18,
+          right: 22,
+          background: "rgba(0,0,0,0.55)",
+          color: "#fff",
+          fontFamily: "monospace",
+          fontSize: isVertical ? 28 : 20,
+          padding: "4px 12px",
+          borderRadius: 6,
+          pointerEvents: "none",
+          letterSpacing: "0.03em",
+          lineHeight: 1.4,
+        }}>
+          <div style={{ fontSize: "0.9em", opacity: 0.75 }}>startSec / endSec</div>
+          <div>{absoluteSec}</div>
+          <div style={{ fontSize: "0.9em", opacity: 0.75, marginTop: 4 }}>captions startMs</div>
+          <div>{relativeMs}</div>
         </div>
-      </div>
-
-      {/* 字幕: 顔 cam エリア上端からオーバーレイ */}
-      <AbsoluteFill>
-        {renderCaptionPages(pages, fps, { topOffset: captionTopOffset, captionFontSize, theme })}
-      </AbsoluteFill>
+      )}
+      {panicIntensity > 0 && (
+        <AbsoluteFill
+          style={{
+            background: `radial-gradient(ellipse at center, transparent 40%, rgba(180,0,0,${(0.35 * panicIntensity).toFixed(3)}) 100%)`,
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </AbsoluteFill>
   );
 };

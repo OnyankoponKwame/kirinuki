@@ -1,0 +1,32 @@
+{
+  "defaultThemeKey": "yumeno",
+  "themes": {
+    "yumeno": {
+      "label": "yumeno",
+      "titleBackground": "linear-gradient(to right, #FF1493 0%, #B200FF 100%)",
+      "titleTextColor": "#FFFFFF",
+      "titleAccentColor": "#4A0E4E",
+      "captionTextColor": "#FFFFFF",
+      "captionActiveColor": "#fe27c8",
+      "captionActiveGlow": "rgba(254, 39, 200, 0.5)"
+    },
+    "heisei_girl": {
+      "label": "平成女児",
+      "titleBackground": "linear-gradient(135deg, #FF69B4 0%, #FFB6E6 40%, #B8F0FF 65%, #40E0D0 100%)",
+      "titleTextColor": "#FFFFFF",
+      "titleAccentColor": "#880055",
+      "captionTextColor": "#FFFFFF",
+      "captionActiveColor": "#FF5184",
+      "captionActiveGlow": "rgba(255, 81, 132, 0.55)"
+    },
+    "yumeno2": {
+      "label": "yumeno2",
+      "titleBackground": "radial-gradient(ellipse 220% 100% at 12% 50%, #FFD6EC 0%, #FF4DAE 44%, #CC006A 100%)",
+      "titleTextColor": "#FFFFFF",
+      "titleAccentColor": "#660033",
+      "captionTextColor": "#FFFFFF",
+      "captionActiveColor": "#FF4DB3",
+      "captionActiveGlow": "rgba(255, 77, 179, 0.70)"
+    }
+  }
+}

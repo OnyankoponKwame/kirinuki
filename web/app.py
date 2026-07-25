@@ -21,6 +21,7 @@ PROJECT_DIR = Path(__file__).parent.parent
 # is applied on top of it — see web/config.py.
 load_dotenv(PROJECT_DIR / ".env")
 import config as cfg  # noqa: E402
+import theme_store  # noqa: E402
 
 cfg.load_settings()
 cfg.bootstrap_bin_path()
@@ -30,6 +31,7 @@ DOWNLOADS_DIR = DATA_DIR / "downloads"
 TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"
 REMOTION_DIR = PROJECT_DIR / "remotion"
 CLIPS_DIR = DATA_DIR / "remotion" / "out"
+EXPORTS_DIR = DATA_DIR / "exports"
 
 app = FastAPI(title="Kirinuki Web")
 
@@ -194,6 +196,13 @@ def _run_pipeline(job_id: str) -> None:
             job["transcription_path"] = str(t_path)
             log(f"✓ Transcription: {t_path.name}")
 
+        # Live chat is only ever read from this dedicated-folder copy, saved once here
+        # alongside its transcription — never straight out of downloads/.
+        if chat_path and chat_path.exists():
+            chat_path = pl.save_chat(chat_path, t_path)
+            job["chat_path"] = str(chat_path)
+            log(f"✓ Chat saved: {chat_path.name}")
+
         # ── Phase 3: Suggest clips ─────────────────────────────────────────────
         if job["clips"] is not None:
             log(f"▶ 既存クリップ使用: {len(job['clips'])} 件")
@@ -309,6 +318,69 @@ def update_settings(req: SettingsReq):
     return cfg.settings_status()
 
 
+class ThemeReq(BaseModel):
+    label: str
+    titleBackground: str
+    titleTextColor: str
+    titleAccentColor: str
+    captionTextColor: str
+    captionActiveColor: str
+    captionActiveGlow: str
+
+
+@app.get("/api/themes")
+def list_themes():
+    return theme_store.list_themes()
+
+
+@app.post("/api/themes")
+def create_theme(req: ThemeReq):
+    theme_id, theme = theme_store.create_theme(req.model_dump())
+    return {"id": theme_id, "theme": {**theme, "source": "custom"}}
+
+
+@app.put("/api/themes/default/{theme_id}")
+def set_default_theme(theme_id: str):
+    try:
+        theme_store.set_default_theme(theme_id)
+    except KeyError:
+        raise HTTPException(404, "テーマが見つかりません")
+    return theme_store.list_themes()
+
+
+@app.post("/api/themes/{theme_id}/reset")
+def reset_theme(theme_id: str):
+    try:
+        theme = theme_store.reset_theme(theme_id)
+    except ValueError:
+        raise HTTPException(400, "組み込みテーマ以外はリセットできません")
+    except KeyError:
+        raise HTTPException(404, "このテーマは変更されていません")
+    return {"id": theme_id, "theme": {**theme, "source": "builtin"}}
+
+
+@app.put("/api/themes/{theme_id}")
+def update_theme(theme_id: str, req: ThemeReq):
+    try:
+        theme = theme_store.update_theme(theme_id, req.model_dump())
+    except KeyError:
+        raise HTTPException(404, "テーマが見つかりません")
+    builtin, _ = theme_store.load_builtin_themes()
+    source = "override" if theme_id in builtin else "custom"
+    return {"id": theme_id, "theme": {**theme, "source": source}}
+
+
+@app.delete("/api/themes/{theme_id}")
+def delete_theme(theme_id: str):
+    try:
+        theme_store.delete_theme(theme_id)
+    except ValueError:
+        raise HTTPException(400, "組み込みテーマは削除できません（「元に戻す」を使用してください）")
+    except KeyError:
+        raise HTTPException(404, "テーマが見つかりません")
+    return {"ok": True}
+
+
 @app.post("/api/jobs")
 async def create_job(req: StartReq):
     if _active_job:
@@ -343,7 +415,10 @@ def get_job(jid: str):
     job = jobs.get(jid)
     if not job:
         raise HTTPException(404, "Job not found")
-    return job
+    # Underscore-prefixed entries are internal (pipeline inputs, and "_proc" — the
+    # live subprocess handle, which FastAPI cannot serialise and which used to make
+    # this endpoint 500 for the whole duration of a render or export).
+    return {k: v for k, v in job.items() if not k.startswith("_")}
 
 
 @app.get("/api/jobs/{jid}/events")
@@ -359,7 +434,7 @@ async def job_events(jid: str):
             for text in job["logs"][cursor:]:
                 yield f"data: {json.dumps({'type': 'log', 'text': text})}\n\n"
                 cursor += 1
-            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect')})}\n\n"
+            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect'), 'export': job.get('export')})}\n\n"
             if job["status"] in terminal:
                 break
             await asyncio.sleep(0.5 if job["status"] != "ready" else 1.5)
@@ -444,12 +519,123 @@ async def start_render(jid: str, req: RenderReq):
     return {"ok": True}
 
 
+class ExportPremiereReq(BaseModel):
+    indices: list[int] | None = None  # None = all clips
+
+
+@app.post("/api/jobs/{jid}/export-premiere")
+async def export_premiere(jid: str, req: ExportPremiereReq):
+    """Start an editing-material export (caption-free mp4 + matching SRT per clip).
+
+    Runs in the background like /render — each clip is a full ffmpeg re-encode, so
+    this takes minutes, not milliseconds. Progress arrives over the job's SSE
+    stream, and the finished package lands in the state message's `export` field.
+    """
+    import datetime
+
+    job = jobs.get(jid)
+    if not job:
+        raise HTTPException(404)
+    if job["status"] not in ("ready", "complete"):
+        raise HTTPException(409, "ジョブが書き出せる状態ではありません")
+    if not job.get("video_path"):
+        raise HTTPException(400, "動画ファイルが選択されていません")
+    if not job.get("transcription_path"):
+        raise HTTPException(400, "文字起こしファイルが選択されていません")
+
+    clips: list[dict] = job["clips"] or []
+    if not clips:
+        raise HTTPException(400, "クリップが読み込まれていません")
+
+    indices = req.indices if req.indices is not None else list(range(len(clips)))
+    invalid = [i for i in indices if not 0 <= i < len(clips)]
+    if invalid:
+        raise HTTPException(400, f"クリップ番号が範囲外です: {invalid}")
+    if not indices:
+        raise HTTPException(400, "書き出すクリップを選択してください")
+
+    video_path = Path(job["video_path"])
+    if not video_path.exists():
+        raise HTTPException(404, f"動画ファイルが見つかりません: {video_path.name}")
+
+    with open(job["transcription_path"], encoding="utf-8") as f:
+        segments = json.load(f).get("segments", [])
+
+    job["status"] = "exporting"
+    job["stage"] = "exporting"
+    job["export"] = None
+
+    def log(text: str) -> None:
+        job["logs"].append(text)
+
+    def build() -> tuple[Path, Path]:
+        import premiere_export as px
+
+        def set_proc(p, _job=job):
+            _job["_proc"] = p
+
+        def check_cancel(_job=job):
+            return _job.get("status") == "canceled"
+
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        pkg_dir = EXPORTS_DIR / f"premiere_{video_path.stem[:40]}_{ts}"
+        px.export_package(
+            clips=clips,
+            indices=indices,
+            video_path=video_path,
+            segments=segments,
+            out_dir=pkg_dir,
+            src_aspect=job.get("src_aspect") or 16 / 9,
+            log=log,
+            check_cancel=check_cancel,
+            set_proc=set_proc,
+        )
+        return pkg_dir, Path(shutil.make_archive(str(pkg_dir), "zip", root_dir=pkg_dir))
+
+    async def export_task() -> None:
+        log(f"▶ Premiere用に書き出し: {len(indices)} 件（構図・カット適用、字幕なし）")
+        try:
+            loop = asyncio.get_running_loop()
+            pkg_dir, zip_path = await loop.run_in_executor(None, build)
+        except Exception as exc:
+            if job.get("status") != "canceled":
+                job["status"] = "error"
+                job["stage"] = "error"
+                job["error"] = str(exc)
+                log(f"✗ {exc}")
+            return
+        finally:
+            job.pop("_proc", None)
+
+        if job.get("status") == "canceled":
+            return
+        job["export"] = {
+            "filename": zip_path.name,
+            "directory": str(pkg_dir),
+            "count": len(indices),
+        }
+        job["status"] = "complete"
+        job["stage"] = "complete"
+        log(f"✓ {zip_path.name}")
+
+    asyncio.create_task(export_task())
+    return {"ok": True, "count": len(indices)}
+
+
+@app.get("/api/exports/{filename}")
+def serve_export(filename: str):
+    path = EXPORTS_DIR / Path(filename).name
+    if not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type="application/zip", filename=path.name)
+
+
 @app.post("/api/jobs/{jid}/cancel")
 def cancel_job(jid: str):
     job = jobs.get(jid)
     if not job:
         raise HTTPException(404)
-    if job["status"] not in ("running", "rendering", "transcribing", "suggesting", "downloading"):
+    if job["status"] not in ("running", "rendering", "exporting", "transcribing", "suggesting", "downloading"):
         raise HTTPException(400, "Job is not cancelable in its current state")
     
     job["status"] = "canceled"
@@ -494,6 +680,7 @@ def list_files(type: str = Query(...)):
         "transcription":   (TRANSCRIPTIONS_DIR,   ["*_full.json"]),
         "clips":           (TRANSCRIPTIONS_DIR,   ["clips*.json"]),
         "rendered_clips":  (CLIPS_DIR,              ["*.mp4"]),
+        "exports":         (EXPORTS_DIR,          ["*.zip"]),
     }
     if type not in configs:
         raise HTTPException(400, f"Unknown type: {type}")
@@ -564,8 +751,7 @@ def _generate_studio_compositions(video_src: str, segments: list[dict], clips: l
             props["captionFont"] = clip["captionFont"]
         if clip.get("cutIntervals"):
             props["cutIntervals"] = clip["cutIntervals"]
-        if clip.get("theme"):
-            props["theme"] = clip["theme"]
+        props.update(theme_store.resolve_theme_props(clip.get("theme")))
         lines.append(
             f"const clip{i:02d}Props: ClipProps = {json.dumps(props, ensure_ascii=False, indent=2)};"
         )

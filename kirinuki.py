@@ -24,7 +24,7 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
     result = subprocess.run(
         [
             "yt-dlp",
-            "-f", "bestvideo+bestaudio/best",
+            "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
             "--merge-output-format", "mp4",
             "--write-subs",
             "--sub-langs", "live_chat",
