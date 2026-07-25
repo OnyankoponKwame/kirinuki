@@ -20,7 +20,11 @@ def get_suggest_clips_prompt(
 
     extra_prompt_section = ""
     if extra_prompt and extra_prompt.strip():
-        extra_prompt_section = f"\n### 追加指示\n{extra_prompt.strip()}\n"
+        extra_prompt_section = (
+            f"\n### 追加指示（※最優先指示事項）\n"
+            f"以下の指示は、他のすべての一般的な選定・編集方針や制約ルールに優先して適用してください：\n"
+            f"{extra_prompt.strip()}\n"
+        )
 
     return (
         template
