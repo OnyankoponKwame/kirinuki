@@ -235,16 +235,23 @@ def download_video(
     else:
         js_runtime_args = ["--js-runtimes", "node"]
 
+    cookies_path = cfg.get_data_dir() / "cookies.txt"
+    # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
+    # 存在しなければブラウザから抽出し、同時にcookies.txtにキャッシュする。
+    if cookies_path.exists():
+        cookie_args = ["--cookies", str(cookies_path)]
+    else:
+        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+
     cmd = [
         "yt-dlp",
-    ] + js_runtime_args + [
+    ] + js_runtime_args + cookie_args + [
         "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4",
         "--write-subs",
         "--sub-langs", "live_chat",
         "--newline",
         "--print", "after_move:filepath",
-        "--cookies-from-browser", "chrome",
         "-o", template,
         url,
     ]
@@ -272,42 +279,49 @@ def download_video(
 
     proc.wait()
 
-    # Chromeなどのクッキー取得に失敗した場合、クッキーなしで再試行する
-    if proc.returncode != 0 and cookie_error_detected:
-        log("警告: Chrome クッキー의 読み込みに失敗しました（ブラウザが起動中の可能性があります）。")
-        log("クッキーなしでダウンロードを再試行します...")
-        retry_cmd = []
-        skip_next = False
-        for arg in cmd:
-            if skip_next:
-                skip_next = False
-                continue
-            if arg == "--cookies-from-browser":
-                skip_next = True
-                continue
-            retry_cmd.append(arg)
+    # 失敗した時のハンドリング
+    if proc.returncode != 0:
+        # もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
+        if cookies_path.exists() and "--cookies-from-browser" not in cmd:
+            log("保存されたクッキーでのダウンロードに失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
+            retry_cmd = []
+            for arg in cmd:
+                if arg == str(cookies_path):
+                    retry_cmd.append(arg)
+                    continue
+                if arg == "--cookies":
+                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
+                    continue
+                retry_cmd.append(arg)
 
-        proc = subprocess.Popen(
-            retry_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            **cfg.no_window_kwargs(),
-        )
-        stdout_lines = []
-        assert proc.stdout
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                log(line)
-                stdout_lines.append(line)
-        proc.wait()
+            proc = subprocess.Popen(
+                retry_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                **cfg.no_window_kwargs(),
+            )
+            stdout_lines = []
+            assert proc.stdout
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    log(line)
+                    stdout_lines.append(line)
+                    if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
+                        cookie_error_detected = True
+            proc.wait()
 
-        # クッキーなしの再試行も失敗した場合
-        if proc.returncode != 0:
+        # クッキーのロックエラー（ブラウザ起動中）で失敗した場合
+        if proc.returncode != 0 and cookie_error_detected:
+            if cookies_path.exists():
+                try:
+                    cookies_path.unlink()
+                except OSError:
+                    pass
             raise RuntimeError(
-                "ダウンロードに失敗しました。YouTubeのボット制限を回避するためにクッキーが必要な可能性があります。"
-                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください。"
+                "ダウンロードに失敗しました。YouTubeのボット制限を回避するためにクッキーが必要ですが、Chromeが起動中のためアクセスできません。"
+                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください（次回以降はChromeを開いたままでも動作します）。"
             )
 
     if proc.returncode != 0:
@@ -346,14 +360,21 @@ def download_chat_only(
     else:
         js_runtime_args = ["--js-runtimes", "node"]
 
+    cookies_path = cfg.get_data_dir() / "cookies.txt"
+    # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
+    # 存在しなければブラウザから抽出し、同時にcookies.txtにキャッシュする。
+    if cookies_path.exists():
+        cookie_args = ["--cookies", str(cookies_path)]
+    else:
+        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+
     cmd = [
         "yt-dlp",
-    ] + js_runtime_args + [
+    ] + js_runtime_args + cookie_args + [
         "--skip-download",
         "--write-subs",
         "--sub-langs", "live_chat",
         "--newline",
-        "--cookies-from-browser", "chrome",
         "-o", template,
         url,
     ]
@@ -379,40 +400,47 @@ def download_chat_only(
 
     proc.wait()
 
-    # Chromeなどのクッキー取得に失敗した場合、クッキーなしで再試行する
-    if proc.returncode != 0 and cookie_error_detected:
-        log("警告: Chrome クッキーの読み込みに失敗しました（ブラウザが起動中の可能性があります）。")
-        log("クッキーなしでチャットデータのダウンロードを再試行します...")
-        retry_cmd = []
-        skip_next = False
-        for arg in cmd:
-            if skip_next:
-                skip_next = False
-                continue
-            if arg == "--cookies-from-browser":
-                skip_next = True
-                continue
-            retry_cmd.append(arg)
+    # 失敗した時のハンドリング
+    if proc.returncode != 0:
+        # もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
+        if cookies_path.exists() and "--cookies-from-browser" not in cmd:
+            log("保存されたクッキーでのチャット取得に失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
+            retry_cmd = []
+            for arg in cmd:
+                if arg == str(cookies_path):
+                    retry_cmd.append(arg)
+                    continue
+                if arg == "--cookies":
+                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
+                    continue
+                retry_cmd.append(arg)
 
-        proc = subprocess.Popen(
-            retry_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            **cfg.no_window_kwargs(),
-        )
-        assert proc.stdout
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                log(line)
-        proc.wait()
+            proc = subprocess.Popen(
+                retry_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                **cfg.no_window_kwargs(),
+            )
+            assert proc.stdout
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    log(line)
+                    if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
+                        cookie_error_detected = True
+            proc.wait()
 
-        # クッキーなしの再試行も失敗した場合
-        if proc.returncode != 0:
+        # クッキーのロックエラー（ブラウザ起動中）で失敗した場合
+        if proc.returncode != 0 and cookie_error_detected:
+            if cookies_path.exists():
+                try:
+                    cookies_path.unlink()
+                except OSError:
+                    pass
             raise RuntimeError(
-                "チャットデータの取得に失敗しました。YouTubeの制限を回避するためにクッキーが必要な可能性があります。"
-                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください。"
+                "チャットデータの取得に失敗しました。YouTubeの制限を回避するためにクッキーが必要ですが、Chromeが起動中のためアクセスできません。"
+                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください（次回以降はChromeを開いたままでも動作します）。"
             )
 
     if proc.returncode != 0:

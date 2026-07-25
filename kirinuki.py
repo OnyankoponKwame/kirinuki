@@ -22,6 +22,14 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
     template = str(output_dir / "%(id)s.%(ext)s")
 
     print(f"Downloading video: {url}")
+    cookies_path = Path(__file__).parent / "cookies.txt"
+    # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
+    # 存在しなければブラウザから抽出し、同時にcookies.txtにキャッシュする。
+    if cookies_path.exists():
+        cookie_args = ["--cookies", str(cookies_path)]
+    else:
+        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+
     cmd = [
         "yt-dlp",
         "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
@@ -29,7 +37,7 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
         "--write-subs",
         "--sub-langs", "live_chat",
         "--print", "after_move:filepath",
-        "--cookies-from-browser", "chrome",
+    ] + cookie_args + [
         "-o", template,
         url,
     ]
@@ -40,17 +48,16 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
         text=True,
     )
     if result.returncode != 0:
-        stderr_lower = result.stderr.lower()
-        if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "error" in stderr_lower or "failed" in stderr_lower):
-            print("Cookie extraction failed (possibly browser is running). Retrying without cookies...")
+        # もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
+        if cookies_path.exists() and "--cookies-from-browser" not in cmd:
+            print("Download with cached cookies failed. Refreshing cookies from browser...")
             retry_cmd = []
-            skip_next = False
             for arg in cmd:
-                if skip_next:
-                    skip_next = False
+                if arg == str(cookies_path):
+                    retry_cmd.append(arg)
                     continue
-                if arg == "--cookies-from-browser":
-                    skip_next = True
+                if arg == "--cookies":
+                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
                     continue
                 retry_cmd.append(arg)
             result = subprocess.run(
@@ -58,11 +65,19 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
                 capture_output=True,
                 text=True,
             )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    "Download failed. YouTube requires cookies to bypass bot detection. "
-                    "Please completely close your Chrome browser and try again."
-                )
+
+        # クッキーのロックエラー（ブラウザ起動中）等で失敗した場合
+        stderr_lower = result.stderr.lower()
+        if result.returncode != 0 and "cookie" in stderr_lower and ("could not copy" in stderr_lower or "error" in stderr_lower or "failed" in stderr_lower):
+            if cookies_path.exists():
+                try:
+                    cookies_path.unlink()
+                except OSError:
+                    pass
+            raise RuntimeError(
+                "Download failed. YouTube requires cookies to bypass bot detection, but the cookies database is locked because Chrome is running.\n"
+                "Please completely close your Chrome browser and try again (subsequent downloads will work with Chrome open)."
+            )
 
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed:\n{result.stderr}")
