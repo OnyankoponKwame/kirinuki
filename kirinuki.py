@@ -40,6 +40,31 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
         text=True,
     )
     if result.returncode != 0:
+        stderr_lower = result.stderr.lower()
+        if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "error" in stderr_lower or "failed" in stderr_lower):
+            print("Cookie extraction failed (possibly browser is running). Retrying without cookies...")
+            retry_cmd = []
+            skip_next = False
+            for arg in cmd:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg == "--cookies-from-browser":
+                    skip_next = True
+                    continue
+                retry_cmd.append(arg)
+            result = subprocess.run(
+                retry_cmd,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "Download failed. YouTube requires cookies to bypass bot detection. "
+                    "Please completely close your Chrome browser and try again."
+                )
+
+    if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed:\n{result.stderr}")
 
     lines = [l for l in result.stdout.strip().splitlines() if l.endswith(".mp4")]

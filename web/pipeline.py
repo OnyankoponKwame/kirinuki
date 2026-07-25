@@ -227,8 +227,17 @@ def download_video(
     output_dir.mkdir(exist_ok=True)
     template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
+    # Windowsのパッケージ版ではNode.jsが同梱されているため、yt-dlpにそのパスを明示的に伝える
+    js_runtime_args = []
+    packaged_node = PROJECT_DIR / "node" / "node.exe"
+    if packaged_node.exists():
+        js_runtime_args = ["--js-runtimes", f"node:{packaged_node}"]
+    else:
+        js_runtime_args = ["--js-runtimes", "node"]
+
     cmd = [
         "yt-dlp",
+    ] + js_runtime_args + [
         "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4",
         "--write-subs",
@@ -240,6 +249,9 @@ def download_video(
         url,
     ]
 
+    cookie_error_detected = False
+    stdout_lines: list[str] = []
+
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -248,15 +260,56 @@ def download_video(
         **cfg.no_window_kwargs(),
     )
 
-    stdout_lines: list[str] = []
     assert proc.stdout
     for line in proc.stdout:
         line = line.rstrip()
         if line:
             log(line)
             stdout_lines.append(line)
+            # クッキーのロックエラーや未検出を検知
+            if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
+                cookie_error_detected = True
 
     proc.wait()
+
+    # Chromeなどのクッキー取得に失敗した場合、クッキーなしで再試行する
+    if proc.returncode != 0 and cookie_error_detected:
+        log("警告: Chrome クッキー의 読み込みに失敗しました（ブラウザが起動中の可能性があります）。")
+        log("クッキーなしでダウンロードを再試行します...")
+        retry_cmd = []
+        skip_next = False
+        for arg in cmd:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == "--cookies-from-browser":
+                skip_next = True
+                continue
+            retry_cmd.append(arg)
+
+        proc = subprocess.Popen(
+            retry_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            **cfg.no_window_kwargs(),
+        )
+        stdout_lines = []
+        assert proc.stdout
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                log(line)
+                stdout_lines.append(line)
+        proc.wait()
+
+        # クッキーなしの再試行も失敗した場合
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "ダウンロードに失敗しました。YouTubeのボット制限を回避するためにクッキーが必要な可能性があります。"
+                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください。"
+            )
+
     if proc.returncode != 0:
         raise RuntimeError("yt-dlp failed — check the URL and network connection")
 
@@ -285,8 +338,17 @@ def download_chat_only(
     output_dir.mkdir(exist_ok=True)
     template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
 
+    # Windowsのパッケージ版ではNode.jsが同梱されているため、yt-dlpにそのパスを明示的に伝える
+    js_runtime_args = []
+    packaged_node = PROJECT_DIR / "node" / "node.exe"
+    if packaged_node.exists():
+        js_runtime_args = ["--js-runtimes", f"node:{packaged_node}"]
+    else:
+        js_runtime_args = ["--js-runtimes", "node"]
+
     cmd = [
         "yt-dlp",
+    ] + js_runtime_args + [
         "--skip-download",
         "--write-subs",
         "--sub-langs", "live_chat",
@@ -295,6 +357,8 @@ def download_chat_only(
         "-o", template,
         url,
     ]
+
+    cookie_error_detected = False
 
     proc = subprocess.Popen(
         cmd,
@@ -309,8 +373,48 @@ def download_chat_only(
         line = line.rstrip()
         if line:
             log(line)
+            # クッキーのロックエラーや未検出を検知
+            if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
+                cookie_error_detected = True
 
     proc.wait()
+
+    # Chromeなどのクッキー取得に失敗した場合、クッキーなしで再試行する
+    if proc.returncode != 0 and cookie_error_detected:
+        log("警告: Chrome クッキーの読み込みに失敗しました（ブラウザが起動中の可能性があります）。")
+        log("クッキーなしでチャットデータのダウンロードを再試行します...")
+        retry_cmd = []
+        skip_next = False
+        for arg in cmd:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == "--cookies-from-browser":
+                skip_next = True
+                continue
+            retry_cmd.append(arg)
+
+        proc = subprocess.Popen(
+            retry_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            **cfg.no_window_kwargs(),
+        )
+        assert proc.stdout
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                log(line)
+        proc.wait()
+
+        # クッキーなしの再試行も失敗した場合
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "チャットデータの取得に失敗しました。YouTubeの制限を回避するためにクッキーが必要な可能性があります。"
+                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください。"
+            )
+
     if proc.returncode != 0:
         raise RuntimeError("yt-dlp failed — URLとネット接続を確認してください")
 
