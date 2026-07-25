@@ -8,6 +8,7 @@ clips/
 exports/
 web/transcriptions/
 studio.log
+launcher.log
 
 # ── Windows パッケージングのビルド出力（APIキーを含み得る default_config.json も含む） ──
 dist/
