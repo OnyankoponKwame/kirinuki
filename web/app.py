@@ -180,7 +180,7 @@ def _run_pipeline(job_id: str) -> None:
                         job["_language"],
                         job.get("_transcription_prompt"),
                         job.get("_audio_mode", "mp3"),
-                        job.get("_transcription_model", "groq"),
+                        job.get("_transcription_model", "elevenlabs"),
                     )
             finally:
                 if trimmed_path:
@@ -204,7 +204,7 @@ def _run_pipeline(job_id: str) -> None:
             log(f"▶ クリップファイル使用: {clips_file.name}")
         else:
             job["stage"] = "suggesting"
-            log("▶ Asking Claude for clip suggestions...")
+            log("▶ Asking Gemini for clip suggestions...")
             assert result is not None
             job["clips"] = pl.suggest_clips_from_result(result, chat_path, job.get("_extra_prompt"))
             clips_file = pl.save_clips(job["clips"], t_path)
@@ -263,7 +263,7 @@ class StartReq(BaseModel):
     transcription_path: str | None = None  # skip transcription
     transcription_prompt: str | None = None  # initial prompt for Whisper transcription
     audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
-    transcription_model: str = "gemini"  # transcription backend: "gemini" | "elevenlabs" | "groq"
+    transcription_model: str = "elevenlabs"  # transcription backend: "elevenlabs" | "groq" (Gemini is suggestion-only)
     trim_start_min: float | None = None  # clip video before transcription (minutes)
     trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
@@ -318,13 +318,14 @@ async def create_job(req: StartReq):
     if not req.chat_only and req.stop_after != "download":
         status = cfg.settings_status()
         key_labels = {"gemini": "Gemini", "groq": "Groq", "elevenlabs": "ElevenLabs"}
+        transcription_keys = {"groq", "elevenlabs"}
 
         def require(key: str) -> None:
             if not status[key] and key_labels[key] not in missing:
                 missing.append(key_labels[key])
 
         if not req.transcription_path:
-            needed_key = req.transcription_model if req.transcription_model in key_labels else "gemini"
+            needed_key = req.transcription_model if req.transcription_model in transcription_keys else "elevenlabs"
             require(needed_key)
         # suggest_clips_from_result() always uses Gemini, regardless of transcription_model
         if req.clips is None and not req.clips_path:

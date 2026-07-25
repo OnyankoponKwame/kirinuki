@@ -14,6 +14,10 @@ from typing import Callable
 
 import config as cfg
 
+# Model used for clip suggestion (suggest_clips_from_result). Transcription does not
+# use Gemini — see run_transcription()'s "groq" / "elevenlabs" branches.
+GEMINI_MODEL_ID = "gemini-3.5-flash-lite"
+
 PROJECT_DIR = Path(__file__).parent.parent
 AUDIO_DIR = PROJECT_DIR / "audio-chunking"
 REMOTION_DIR = PROJECT_DIR / "remotion"
@@ -186,12 +190,9 @@ def run_transcription(
     language: str,
     initial_prompt: str | None = None,
     audio_mode: str = "mp3",
-    transcription_model: str = "gemini",
+    transcription_model: str = "elevenlabs",
 ) -> dict:
-    if transcription_model == "gemini":
-        from gemini_transcribe import transcribe_with_gemini
-        raw = transcribe_with_gemini(video_path, language=language, initial_prompt=initial_prompt)
-    elif transcription_model == "groq":
+    if transcription_model == "groq":
         raw = transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
     else:
         from elevenlabs_transcribe import transcribe_with_elevenlabs
@@ -518,11 +519,10 @@ captionEffect は字幕全体の基本効果です。次のルールで1つ選�
 
     from google import genai
     from google.genai import types
-    from gemini_transcribe import DEFAULT_MODEL_ID
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model=DEFAULT_MODEL_ID,
+        model=GEMINI_MODEL_ID,
         contents=[prompt],
         config=types.GenerateContentConfig(max_output_tokens=8192),
     )

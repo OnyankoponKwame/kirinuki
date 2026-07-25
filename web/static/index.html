@@ -236,14 +236,14 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
     <h2 style="font-size:16px">API キー設定</h2>
     <div class="field">
-      <label>Gemini API キー（必須・文字起こし/切り抜き提案に使用）</label>
-      <input type="password" id="settings-gemini" placeholder="設定済みの場合は入力不要">
-      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">aistudio.google.com で取得</a>
-    </div>
-    <div class="field">
-      <label>ElevenLabs API キー（任意・ElevenLabs文字起こし使用時のみ）</label>
+      <label>ElevenLabs API キー（必須・文字起こしに使用）</label>
       <input type="password" id="settings-elevenlabs" placeholder="設定済みの場合は入力不要">
       <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">elevenlabs.io で取得</a>
+    </div>
+    <div class="field">
+      <label>Gemini API キー（必須・切り抜き提案に使用）</label>
+      <input type="password" id="settings-gemini" placeholder="設定済みの場合は入力不要">
+      <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">aistudio.google.com で取得</a>
     </div>
     <div class="field">
       <label>Groq API キー（任意・Groq文字起こし使用時のみ）</label>
@@ -330,12 +330,8 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
       <label>文字起こしモデル</label>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
-          <input type="radio" name="p2-trans-model" value="gemini" checked style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
-          <span><b>Gemini</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">チャンク分割なし・ファイル全体をアップロードして一括処理</span></span>
-        </label>
-        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
-          <input type="radio" name="p2-trans-model" value="elevenlabs" style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
-          <span><b>ElevenLabs Scribe</b><br><span style="color:var(--muted);font-size:11px">サイズ・長さ制限なし・チャンク分割不要で一括処理</span></span>
+          <input type="radio" name="p2-trans-model" value="elevenlabs" checked style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
+          <span><b>ElevenLabs Scribe</b> <span style="color:var(--green);font-size:11px">おすすめ</span><br><span style="color:var(--muted);font-size:11px">サイズ・長さ制限なし・チャンク分割不要で一括処理</span></span>
         </label>
         <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
           <input type="radio" name="p2-trans-model" value="groq" style="margin-top:3px;flex-shrink:0" onchange="onTransModelChange()">
@@ -617,7 +613,7 @@ function appendLog(consoleId, text) {
 // ── Transcription model toggle ─────────────────────────────────────────────
 function onTransModelChange() {
   const model = document.querySelector('input[name="p2-trans-model"]:checked')?.value;
-  const noChunking = model === 'gemini' || model === 'elevenlabs';
+  const noChunking = model === 'elevenlabs';
   document.getElementById('p2-audio-mode-wrap').style.display = noChunking ? 'none' : '';
 }
 
@@ -634,25 +630,17 @@ function updateTranscribeProgress(text) {
     document.getElementById('ph2-conv-fill').style.width = pct + '%';
   }
 
-  // Gemini: アップロード中
-  if (text.includes('Gemini') && text.includes('アップロード中')) {
+  // ElevenLabs: アップロード中 → 文字起こし中（単発リクエストのため2段階）
+  if (text.includes('ElevenLabs') && text.includes('アップロード中')) {
     prog.hidden = false;
-    if (document.getElementById('ph2-conv-pct').textContent !== '100%') {
-      document.getElementById('ph2-conv-pct').textContent = '100%';
-      document.getElementById('ph2-conv-fill').style.width = '100%';
-    }
-    document.getElementById('ph2-chunk-label').textContent = 'アップロード中...';
-    document.getElementById('ph2-chunk-fill').style.width = '30%';
+    document.getElementById('ph2-conv-pct').textContent = '100%';
+    document.getElementById('ph2-conv-fill').style.width = '100%';
+    document.getElementById('ph2-chunk-label').textContent = 'アップロード・文字起こし中...';
+    document.getElementById('ph2-chunk-fill').style.width = '50%';
   }
 
-  // Gemini: アップロード完了 → 文字起こし中
-  if (text.includes('Gemini') && text.includes('アップロード完了')) {
-    document.getElementById('ph2-chunk-label').textContent = '文字起こし中...';
-    document.getElementById('ph2-chunk-fill').style.width = '60%';
-  }
-
-  // Gemini: 文字起こし完了
-  if (text.includes('Gemini') && text.includes('文字起こし完了')) {
+  // ElevenLabs: 文字起こし完了
+  if (text.includes('ElevenLabs') && text.includes('文字起こし完了')) {
     document.getElementById('ph2-chunk-label').textContent = '完了';
     document.getElementById('ph2-chunk-fill').style.width = '100%';
   }
@@ -889,7 +877,7 @@ async function runPhase2() {
         language: document.getElementById('p2-lang').value,
         transcription_prompt: document.getElementById('p2-extra-prompt').value.trim() || undefined,
         audio_mode: document.querySelector('input[name="p2-audio-mode"]:checked')?.value || 'mp3',
-        transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'gemini',
+        transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'elevenlabs',
         ...(document.getElementById('p2-trim-start').value !== '' ? { trim_start_min: parseFloat(document.getElementById('p2-trim-start').value) } : {}),
         ...(document.getElementById('p2-trim-end').value !== '' ? { trim_end_min: parseFloat(document.getElementById('p2-trim-end').value) } : {}),
         clips: [],
@@ -1750,6 +1738,7 @@ async function refreshSettingsBanner() {
     return;
   }
   const missing = [];
+  if (!status.elevenlabs) missing.push('ElevenLabs');
   if (!status.gemini) missing.push('Gemini');
   const banner = document.getElementById('settings-banner');
   if (missing.length) {
@@ -1769,8 +1758,8 @@ async function openSettings() {
   const statusText = (label, ok) => `${label}: ${ok ? '設定済み ✓' : '未設定'}`;
   document.getElementById('settings-modal-status').textContent =
     [
-      statusText('Gemini', status.gemini),
       statusText('ElevenLabs', status.elevenlabs),
+      statusText('Gemini', status.gemini),
       statusText('Groq', status.groq),
     ].join(' / ');
   document.getElementById('settings-elevenlabs').value = '';
