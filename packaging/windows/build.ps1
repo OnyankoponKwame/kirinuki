@@ -79,7 +79,14 @@ Download-File $GetPipUrl $getPip
 Invoke-Checked "bootstrap pip" { & "$pythonDir\python.exe" $getPip --no-warn-script-location }
 
 Invoke-Checked "pip install -r requirements.txt" {
-    & "$pythonDir\python.exe" -m pip install --no-warn-script-location -r "$RepoRoot\requirements.txt"
+    & "$pythonDir\python.exe" -m pip install --no-warn-script-location --no-cache-dir -r "$RepoRoot\requirements.txt"
+}
+
+# Cleanup __pycache__ and unused compilations to save space
+Write-Host "== Cleaning up Python dependencies =="
+if (Test-Path (Join-Path $pythonDir "Lib\site-packages")) {
+    Get-ChildItem -Path (Join-Path $pythonDir "Lib\site-packages") -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $pythonDir "Lib\site-packages") -Recurse -Filter "*.pyc" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # pip succeeding is not proof the packages actually landed where Python will look for
@@ -105,8 +112,8 @@ foreach ($item in @("web", "audio-chunking", "remotion", "suggest_clips.py", "re
     Copy-Item -Path (Join-Path $RepoRoot $item) -Destination (Join-Path $AppDir $item) -Recurse -Force
 }
 # Packaged app data lives under %LOCALAPPDATA%\Kirinuki via config.get_data_dir();
-# don't ship dev-machine transcriptions/downloads/renders.
-foreach ($devOnly in @("web\transcriptions", "downloads", "transcriptions")) {
+# don't ship dev-machine transcriptions/downloads/renders, and clean up temporary dev assets.
+foreach ($devOnly in @("web\transcriptions", "downloads", "transcriptions", "clips", "web\__pycache__", "audio-chunking\__pycache__", "remotion\node_modules", "remotion\.next", "remotion\out", "remotion\build")) {
     $p = Join-Path $AppDir $devOnly
     if (Test-Path $p) { Remove-Item -Recurse -Force $p }
 }
@@ -117,21 +124,24 @@ $npmCmd = Join-Path $AppDir "node\npm.cmd"
 $npxCmd = Join-Path $AppDir "node\npx.cmd"
 Push-Location (Join-Path $AppDir "remotion")
 try {
-    Invoke-Checked "npm install (remotion)" { & $npmCmd install }
+    Invoke-Checked "npm install (remotion)" { & $npmCmd install --omit=dev }
 
     $remotionCheck = Join-Path $AppDir "remotion\node_modules\remotion"
     if (-not (Test-Path $remotionCheck)) {
         throw "remotion missing from $remotionCheck after npm install"
     }
 
-    # Best-effort pre-download of Remotion's headless Chrome build so the packaged
-    # app doesn't need network access on first render. Non-fatal (and the exact
-    # subcommand unverified against the pinned Remotion version) — worst case,
-    # Remotion downloads it lazily on the first real render instead.
-    & $npxCmd remotion browser ensure
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "npx remotion browser ensure failed (exit $LASTEXITCODE) — continuing without a pre-downloaded browser; verify the command against this Remotion version if first render fails offline."
-    }
+    # Clean up node_modules unnecessary files to save installer space
+    Write-Host "  -> Cleaning up node_modules unnecessary files"
+    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "README*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "LICENSE*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "CHANGELOG*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Directory -Filter "test" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Directory -Filter "tests" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Headless Chromium (approx. 150MB-250MB) is omitted from the installer for size reduction.
+    # Remotion will automatically download it on the first video render if internet is available.
+    # & $npxCmd remotion browser ensure
 } finally {
     Pop-Location
 }
