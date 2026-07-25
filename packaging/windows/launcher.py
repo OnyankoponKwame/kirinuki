@@ -121,128 +121,41 @@ def main() -> None:
             _show_error(f"サーバーが{START_TIMEOUT_SEC:.0f}秒以内に起動しませんでした。")
         return
 
-    _log("server ready, showing startup prompt")
-
-    import ctypes
-    import subprocess
-
-    should_open_browser = False
-
-    # 1. 起動準備ダイアログを表示
-    if sys.platform == "win32":
-        # MB_OKCANCEL = 1
-        ret = ctypes.windll.user32.MessageBoxW(
-            None,
-            "Kirinuki サーバーが起動しました。\n"
-            "ブラウザの起動とクッキーの取得（ボット対策の回避用）を行います。\n\n"
-            "Chromeブラウザが開いている場合は、完全に閉じた状態で [OK] を押してください。\n"
-            "（手動で cookies.txt を配置済みの場合は [キャンセル] で進めてください）",
-            "Kirinuki - 起動準備",
-            1,
-        )
-        if ret == 1:  # IDOK
-            should_open_browser = True
-            try:
-                cookies_path = cfg.get_data_dir() / "cookies.txt"
-                _log("pre-fetching cookies from chrome")
-                cookies_path.parent.mkdir(parents=True, exist_ok=True)
-                while True:
-                    res = subprocess.run(
-                        [
-                            "yt-dlp",
-                            "--cookies-from-browser", "chrome",
-                            "--cookies", str(cookies_path),
-                            "--skip-download",
-                            "https://www.youtube.com"
-                        ],
-                        capture_output=True,
-                        text=True,
-                        **cfg.no_window_kwargs()
-                    )
-                    if res.returncode == 0:
-                        _log("cookies pre-fetched and cached successfully")
-                        if sys.platform == "win32":
-                            ctypes.windll.user32.MessageBoxW(
-                                None,
-                                "YouTubeのクッキー情報の取得に成功しました！\n\n"
-                                f"保存先: {cookies_path}",
-                                "Kirinuki - 取得成功",
-                                64, # MB_ICONINFORMATION
-                            )
-                        break
-
-                    # クッキーの取得失敗
-                    stderr_lower = res.stderr.lower()
-                    _log(f"failed to pre-fetch cookies: {res.stderr}")
-                    if sys.platform == "win32":
-                        if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "lock" in stderr_lower or "permission" in stderr_lower):
-                            error_msg = (
-                                "Chromeブラウザが起動中、またはバックグラウンドで実行中のためクッキーを取得できません。\n\n"
-                                "【解決方法】\n"
-                                "1. Chromeブラウザを完全に閉じてください（タスクバー右下のインジケーターやタスクマネージャー等でプロセスが残っていないか確認してください）。その後、[OK] を押して再試行してください。\n\n"
-                                "2. または、ブラウザ拡張機能を使ってクッキーをエクスポートし、以下のフォルダに「cookies.txt」として手動保存してから [キャンセル] を押してください。\n"
-                                f"保存先フォルダ: {cookies_path.parent}"
-                            )
-                        else:
-                            error_msg = (
-                                "クッキー情報の取得に失敗しました。\n"
-                                "別の原因（Chromeがインストールされていない等）の可能性があります。\n\n"
-                                "【エラー詳細】\n"
-                                f"{res.stderr}\n\n"
-                                "※手動でクッキーファイルを用意する場合は、ブラウザ拡張機能を使って「cookies.txt」としてエクスポートし、以下のフォルダに保存してから [キャンセル] を押してください。\n"
-                                f"保存先フォルダ: {cookies_path.parent}"
-                            )
-                        
-                        retry_ret = ctypes.windll.user32.MessageBoxW(
-                            None,
-                            error_msg,
-                            "Kirinuki - クッキー取得エラー",
-                            1, # MB_OKCANCEL
-                        )
-                        if retry_ret == 2:  # IDCANCEL
-                            _log("user canceled cookie pre-fetch prompt")
-                            break
-                    else:
-                        break
-            except Exception as e:
-                _log(f"failed to pre-fetch cookies: {e}")
-                if sys.platform == "win32":
-                    ctypes.windll.user32.MessageBoxW(
-                        None,
-                        f"クッキー取得処理中に例外が発生しました:\n{e}",
-                        "Kirinuki - 例外エラー",
-                        16, # MB_ICONERROR
-                    )
-    else:
-        # win32以外はデフォルトで自動起動に進む
-        should_open_browser = True
-
-    # 2. 必要に応じてブラウザを起動し、作業フォルダを開く
-    if should_open_browser:
-        _log("opening browser and data directory")
-        webbrowser.open(f"http://{HOST}:{PORT}")
-        try:
-            data_dir = cfg.get_data_dir()
-            data_dir.mkdir(parents=True, exist_ok=True)
-            if sys.platform == "win32":
-                os.startfile(str(data_dir))
-            else:
-                subprocess.run(["open", str(data_dir)])
-        except Exception as e:
-            _log(f"failed to open data directory: {e}")
+    _log("server ready, opening browser and data directory")
+    webbrowser.open(f"http://{HOST}:{PORT}")
+    try:
+        data_dir = cfg.get_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(data_dir))
+        else:
+            import subprocess
+            subprocess.run(["open", str(data_dir)])
+    except Exception as e:
+        _log(f"failed to open data directory: {e}")
 
     # 3. 実行中常駐ダイアログを表示
     _log("showing server active dialog")
+    import ctypes
     if sys.platform == "win32":
-        # MB_OK = 0
-        ctypes.windll.user32.MessageBoxW(
-            None,
-            "Kirinuki サーバーを実行中です。\n\n"
-            "アプリの利用を終了する場合は、[OK] を押してください。\n"
-            "Python サーバーと関連プロセスが完全にシャットダウンします。",
-            "Kirinuki サーバーマネージャー",
-            0,
-        )
+        while True:
+            # MB_YESNO = 4
+            ret = ctypes.windll.user32.MessageBoxW(
+                None,
+                "Kirinuki サーバーを実行中です。\n\n"
+                "・インストールフォルダ（bin/やweb/等）を開くには [はい] を押してください。\n"
+                "・アプリを終了してサーバーを停止するには [いいえ] を押してください。",
+                "Kirinuki サーバーマネージャー",
+                4,
+            )
+            if ret == 6:  # IDYES
+                try:
+                    os.startfile(str(APP_ROOT))
+                except Exception as e:
+                    _log(f"failed to open install directory: {e}")
+                continue
+            else:
+                break
     else:
         # win32以外はキー入力待機などの簡易ブロック
         _log("press enter to shutdown in non-windows")

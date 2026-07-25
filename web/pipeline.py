@@ -317,15 +317,20 @@ def download_video(
 
     cookies_path = cfg.get_data_dir() / "cookies.txt"
     # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
-    # 存在しなければブラウザから抽出し、同時にcookies.txtにキャッシュする。
+    # 存在しなければ、最初はクッキーなしでダウンロードを試みる。
     if cookies_path.exists():
         cookie_args = ["--cookies", str(cookies_path)]
     else:
-        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+        cookie_args = []
+
+    ffmpeg_args = []
+    bin_dir = PROJECT_DIR / "bin"
+    if (bin_dir / "ffmpeg.exe").exists() or (bin_dir / "ffmpeg").exists():
+        ffmpeg_args = ["--ffmpeg-location", str(bin_dir)]
 
     cmd = [
         "yt-dlp",
-    ] + js_runtime_args + cookie_args + [
+    ] + js_runtime_args + cookie_args + ffmpeg_args + [
         "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "--merge-output-format", "mp4",
         "--write-subs",
@@ -361,8 +366,14 @@ def download_video(
 
     # 失敗した時のハンドリング
     if proc.returncode != 0:
-        # もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
-        if cookies_path.exists() and "--cookies-from-browser" not in cmd:
+        bot_error_detected = any(
+            any(kw in line.lower() for kw in ["confirm you are not a bot", "sign in", "cookie", "bot", "captcha", "forbidden"])
+            for line in stdout_lines
+        )
+
+        retry_cmd = None
+        # 1. もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
+        if cookies_path.exists() and "--cookies" in cmd and "--cookies-from-browser" not in cmd:
             log("保存されたクッキーでのダウンロードに失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
             retry_cmd = []
             for arg in cmd:
@@ -373,7 +384,18 @@ def download_video(
                     retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
                     continue
                 retry_cmd.append(arg)
+        # 2. もしクッキーなしで失敗し、かつボットエラーが検出された場合は、Chromeからのクッキー取得を試みてリトライします
+        elif not cookies_path.exists() and "--cookies" not in cmd and bot_error_detected:
+            log("クッキーなしでのダウンロードに失敗しました。YouTubeの制限回避のため、Chromeからクッキーを取得してリトライします...")
+            retry_cmd = cmd.copy()
+            # 動画URL(cmd[-1])の手前にクッキー引数を挿入する
+            insert_idx = len(retry_cmd) - 1
+            retry_cmd.insert(insert_idx, "--cookies")
+            retry_cmd.insert(insert_idx, str(cookies_path))
+            retry_cmd.insert(insert_idx, "chrome")
+            retry_cmd.insert(insert_idx, "--cookies-from-browser")
 
+        if retry_cmd:
             proc = subprocess.Popen(
                 retry_cmd,
                 stdout=subprocess.PIPE,
@@ -413,6 +435,13 @@ def download_video(
 
     video_path = Path(mp4_lines[-1])
     if not video_path.exists():
+        try:
+            files = list(video_path.parent.glob("*"))
+            log(f"Debug: Output directory contains {len(files)} files:")
+            for f in files:
+                log(f"  - {f.name}")
+        except Exception as e:
+            log(f"Debug: Failed to list files: {e}")
         raise RuntimeError(f"Downloaded file missing: {video_path}")
 
     chat_path = video_path.with_suffix("").with_suffix(".live_chat.json")
@@ -442,15 +471,20 @@ def download_chat_only(
 
     cookies_path = cfg.get_data_dir() / "cookies.txt"
     # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
-    # 存在しなければブラウザから抽出し、同時にcookies.txtにキャッシュする。
+    # 存在しなければ、最初はクッキーなしでダウンロードを試みる。
     if cookies_path.exists():
         cookie_args = ["--cookies", str(cookies_path)]
     else:
-        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+        cookie_args = []
+
+    ffmpeg_args = []
+    bin_dir = PROJECT_DIR / "bin"
+    if (bin_dir / "ffmpeg.exe").exists() or (bin_dir / "ffmpeg").exists():
+        ffmpeg_args = ["--ffmpeg-location", str(bin_dir)]
 
     cmd = [
         "yt-dlp",
-    ] + js_runtime_args + cookie_args + [
+    ] + js_runtime_args + cookie_args + ffmpeg_args + [
         "--skip-download",
         "--write-subs",
         "--sub-langs", "live_chat",

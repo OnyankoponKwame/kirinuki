@@ -39,7 +39,7 @@ const captionSchema = z.object({
     .describe("エフェクト種別（emphasis は旧データ互換のみ）"),
   isComment: z
     .boolean()
-    .optional()
+    .default(false)
     .describe("コメント風吹き出し表示（ユーザーアイコン付き）"),
 });
 
@@ -143,21 +143,6 @@ export const clipSchema = z.object({
 
 export type ClipProps = z.infer<typeof clipSchema>;
 type EffectRange = { startMs: number; endMs: number; type: string };
-
-export const defaultClipProps: ClipProps = {
-  videoSrc: "",
-  startSec: 0,
-  endSec: 10,
-  vertical: true,
-  verticalMode: "crop",
-  cropX: 93,
-  faceCamZoom: 2,
-  faceCamY: 100,
-  title: "",
-  captions: [],
-  captionFontSize: 96,
-  captionFont: "mochiy",
-};
 
 // ── Metadata ──────────────────────────────────────────────────────────────────
 

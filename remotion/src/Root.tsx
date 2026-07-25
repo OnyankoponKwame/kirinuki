@@ -3,7 +3,6 @@ import {
   ClipComposition,
   calculateMetadata,
   clipSchema,
-  defaultClipProps,
 } from "./ClipComposition";
 import { StudioCompositions } from "./studioCompositions";
 
@@ -19,7 +18,20 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1920}
         height={1080}
-        defaultProps={defaultClipProps}
+        defaultProps={{
+          videoSrc: "",
+          startSec: 0,
+          endSec: 10,
+          vertical: true,
+          verticalMode: "crop",
+          cropX: 93,
+          faceCamZoom: 2,
+          faceCamY: 100,
+          title: "",
+          captions: [],
+          captionFontSize: 96,
+          captionFont: "mochiy",
+        }}
         calculateMetadata={calculateMetadata}
       />
 

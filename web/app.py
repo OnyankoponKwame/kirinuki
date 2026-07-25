@@ -740,6 +740,61 @@ def split_geometry(req: SplitGeometryReq):
     }
 
 
+class ClipSegmentsReq(BaseModel):
+    transcription_path: str
+    start_sec: float
+    end_sec: float
+
+
+@app.post("/api/clip-segments")
+def get_clip_segments(req: ClipSegmentsReq):
+    """Transcript segments overlapping a clip's time range, each with its `isComment`
+    flag — backs the clip card's per-line 💬 comment-bubble checkbox list."""
+    path = _resolve(req.transcription_path, TRANSCRIPTIONS_DIR)
+    if not path.exists():
+        raise HTTPException(404, f"文字起こしが見つかりません: {req.transcription_path}")
+    with open(path, encoding="utf-8") as f:
+        segments = json.load(f).get("segments", [])
+    out = [
+        {
+            "index": i,
+            "start": s.get("start", 0),
+            "end": s.get("end", 0),
+            "text": s.get("text", ""),
+            "isComment": bool(s.get("is_comment")),
+        }
+        for i, s in enumerate(segments)
+        if s.get("end", 0) > req.start_sec and s.get("start", 0) < req.end_sec
+    ]
+    return {"segments": out}
+
+
+class SegmentCommentReq(BaseModel):
+    transcription_path: str
+    index: int
+    is_comment: bool
+
+
+@app.post("/api/segment-comment")
+def set_segment_comment(req: SegmentCommentReq):
+    """Persists one transcript segment's comment-bubble flag (see get_clip_segments)."""
+    path = _resolve(req.transcription_path, TRANSCRIPTIONS_DIR)
+    if not path.exists():
+        raise HTTPException(404, f"文字起こしが見つかりません: {req.transcription_path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    segments = data.get("segments", [])
+    if not (0 <= req.index < len(segments)):
+        raise HTTPException(400, "無効なセグメント index です")
+    if req.is_comment:
+        segments[req.index]["is_comment"] = True
+    else:
+        segments[req.index].pop("is_comment", None)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return {"ok": True}
+
+
 @app.get("/api/frame")
 def video_frame(video: str = Query(...), t: float = Query(0.0)):
     """A single JPEG frame from a downloaded video, for the face-position picker."""

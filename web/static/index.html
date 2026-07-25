@@ -380,6 +380,20 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
   </div>
 </div>
 
+<div id="comment-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(74,53,64,.45);display:none;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:640px;max-width:94vw;max-height:86vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px">コメント吹き出しの設定</h2>
+      <button class="btn-secondary" onclick="closeCommentPicker()">閉じる</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">
+      チェックした行だけ、アイコン付きの吹き出し（コメント風）で表示されます。チェックした時点で文字起こしファイルに保存されます。
+    </div>
+    <div id="comment-list" style="display:flex;flex-direction:column;gap:6px"></div>
+    <div id="comment-status" style="font-size:12px;color:var(--muted)"></div>
+  </div>
+</div>
+
 <header>
   <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
     <rect width="26" height="26" rx="9" fill="#FF7FB0"/>
@@ -1501,6 +1515,7 @@ function buildClipCard(clip, idx) {
         ${Object.entries(THEME_DATA.themes).map(([k, v]) => `<option value="${k}" ${(clip.theme || THEME_DATA.default) === k ? 'selected' : ''}>${escHtml(v.label)}</option>`).join('')}
       </select>
     </div>
+    <button class="clip-comment-btn btn-secondary" style="width:100%;font-size:12px;padding:6px 10px;margin-top:6px">💬 コメント吹き出しを設定</button>
     <div class="clip-reason">${escHtml(clip.reason || '')}</div>
     <div class="clip-foot">
       <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)">
@@ -1639,6 +1654,7 @@ function buildClipCard(clip, idx) {
   });
 
   card.querySelector('.clip-face-pick-btn').addEventListener('click', () => openFacePicker(card));
+  card.querySelector('.clip-comment-btn').addEventListener('click', () => openCommentPicker(card));
 
   card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
 
@@ -1948,8 +1964,87 @@ function initFacePicker() {
   document.getElementById('face-overlay').addEventListener('click', e => {
     if (e.target.id === 'face-overlay') closeFacePicker();
   });
+
+  document.getElementById('comment-overlay').addEventListener('click', e => {
+    if (e.target.id === 'comment-overlay') closeCommentPicker();
+  });
 }
 
+// ── コメント吹き出し（行ごとの isComment チェックボックス）───────────────────
+const commentPicker = { card: null, transFile: null };
+
+function openCommentPicker(card) {
+  const transFile = document.getElementById('p4-trans').value || phaseOut.transcription;
+  if (!transFile) { alert('先に文字起こしファイルを選択してください'); return; }
+  commentPicker.card = card;
+  commentPicker.transFile = transFile;
+  document.getElementById('comment-status').textContent = '';
+  document.getElementById('comment-list').innerHTML = '読み込み中…';
+  document.getElementById('comment-overlay').style.display = 'flex';
+  loadCommentSegments();
+}
+
+function closeCommentPicker() {
+  document.getElementById('comment-overlay').style.display = 'none';
+  commentPicker.card = null;
+}
+
+async function loadCommentSegments() {
+  const card = commentPicker.card;
+  const list = document.getElementById('comment-list');
+  if (!card) return;
+  try {
+    const res = await fetch('/api/clip-segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcription_path: commentPicker.transFile,
+        start_sec: parseSec(card.querySelector('.t-start').value),
+        end_sec: parseSec(card.querySelector('.t-end').value),
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.status);
+    const { segments } = await res.json();
+    if (segments.length === 0) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--muted)">この範囲に字幕がありません</div>';
+      return;
+    }
+    list.innerHTML = segments.map(s => `
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer;padding:6px;border:1px solid var(--border);border-radius:6px">
+        <input type="checkbox" class="comment-seg-cb" data-index="${s.index}" ${s.isComment ? 'checked' : ''} style="margin-top:2px;flex-shrink:0">
+        <span><span style="color:var(--muted);font-family:monospace;font-size:11px">${secToHMS(s.start)}</span><br>${escHtml(s.text)}</span>
+      </label>
+    `).join('');
+    list.querySelectorAll('.comment-seg-cb').forEach(cb => {
+      cb.addEventListener('change', () => setSegmentComment(parseInt(cb.dataset.index, 10), cb.checked));
+    });
+  } catch (err) {
+    list.innerHTML = '';
+    document.getElementById('comment-status').textContent = `読み込みに失敗しました: ${err.message}`;
+  }
+}
+
+async function setSegmentComment(index, isComment) {
+  const status = document.getElementById('comment-status');
+  status.style.color = 'var(--muted)';
+  status.textContent = '保存中…';
+  try {
+    const res = await fetch('/api/segment-comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcription_path: commentPicker.transFile,
+        index,
+        is_comment: isComment,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.status);
+    status.textContent = '保存しました';
+  } catch (err) {
+    status.style.color = 'var(--red-strong)';
+    status.textContent = `保存に失敗しました: ${err.message}`;
+  }
+}
 
 function updateSelInfo() {
   const all = document.querySelectorAll('#ph4-clips-grid .clip-card').length;
