@@ -314,7 +314,8 @@ export const CaptionPage: React.FC<{
   theme?: ClipTheme;
   effect?: CaptionEffect;
   suffix?: string;
-}> = ({ page, paddingBottomOverride, topOffset, captionFontSize, captionFont, theme, effect, suffix }) => {
+  isComment?: boolean;
+}> = ({ page, paddingBottomOverride, topOffset, captionFontSize, captionFont, theme, effect, suffix, isComment }) => {
   const t = theme ?? THEMES[DEFAULT_THEME_KEY];
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -350,8 +351,7 @@ export const CaptionPage: React.FC<{
       ? { justifyContent: "flex-start", alignItems: "center", paddingTop: topOffset }
       : { justifyContent: "flex-end", alignItems: "center", paddingBottom };
 
-  const rawText = page.tokens.map(tok => tok.text).join("").trimStart();
-  if (rawText.startsWith("/")) {
+  if (isComment) {
     const bubbleBg = "rgba(255, 255, 255, 0.95)";
     const bubbleFontSize = Math.round(fontSize * 0.88);
     const iconSize = 130;
@@ -360,7 +360,7 @@ export const CaptionPage: React.FC<{
 
     const commentTokens = page.tokens
       .map((token, i) =>
-        i === 0 ? { ...token, text: token.text.replace(/^[\s/]+/, "") } : token,
+        i === 0 ? { ...token, text: token.text.replace(/^\s+/, "") } : token,
       )
       .filter(token => token.text.length > 0);
 

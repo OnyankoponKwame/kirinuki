@@ -27,6 +27,9 @@ remotion/src/studioCompositions.tsx
 remotion/src/studioData.json
 remotion/src/transcription.json
 
+# Studio 用の使い捨てソースコピー（app.py の _sync_studio_src が毎回作り直す）
+remotion/studio-src/
+
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
@@ -42,3 +45,4 @@ __pycache__/
 skills-lock.json
 .agents/
 .claude/
+.omc/

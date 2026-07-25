@@ -93,6 +93,7 @@ def transcribe_with_elevenlabs(
     language: str = "ja",
     initial_prompt: str | None = None,
     audio_mode: str = "mp3",
+    keyterms: list[str] | None = None,
 ) -> dict:
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
@@ -110,17 +111,22 @@ def transcribe_with_elevenlabs(
         size_mb = audio_path.stat().st_size / (1024 * 1024)
         print(f"▶ ElevenLabs: ファイルをアップロード中 ({size_mb:.1f} MB)...")
 
+        data = {
+            "model_id": "scribe_v2",
+            "language_code": language,
+            "timestamps_granularity": "word",
+            "tag_audio_events": "false",
+            "diarize": "false",
+        }
+        if keyterms:
+            # requests encodes a list value as repeated multipart fields with the same name
+            data["keyterms"] = keyterms
+
         with open(audio_path, "rb") as f:
             resp = requests.post(
                 _API_URL,
                 headers={"xi-api-key": api_key},
-                data={
-                    "model_id": "scribe_v2",
-                    "language_code": language,
-                    "timestamps_granularity": "word",
-                    "tag_audio_events": "false",
-                    "diarize": "false",
-                },
+                data=data,
                 files={"file": (audio_path.name, f, mime_type)},
                 timeout=1800,
             )

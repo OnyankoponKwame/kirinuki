@@ -37,6 +37,10 @@ const captionSchema = z.object({
   effect: z.enum([...CAPTION_EFFECTS, "emphasis"])
     .optional()
     .describe("エフェクト種別（emphasis は旧データ互換のみ）"),
+  isComment: z
+    .boolean()
+    .optional()
+    .describe("コメント風吹き出し表示（ユーザーアイコン付き）"),
 });
 
 const cutIntervalSchema = z.object({
@@ -339,6 +343,7 @@ function renderCaptionPages(
           theme={options?.theme}
           effect={effect}
           suffix={suffix}
+          isComment={matchCaption?.isComment ?? false}
         />
       </Sequence>
     );
@@ -611,13 +616,9 @@ export const ClipComposition: React.FC<ClipProps> = ({
               width: mainInnerW,
               height: mainInnerH,
               top: mainVideoVideoTop,
-              left: mainVideoVideoLeft,
-              translate: "116.7px 23.2px",
-              rotate: "-0.1deg",
-              scale: 1.007
+              left: mainVideoVideoLeft
             }}
-            trimBefore={trimBefore}
-            from={-228} />}
+            trimBefore={trimBefore} />}
         </div>
         {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
         <div

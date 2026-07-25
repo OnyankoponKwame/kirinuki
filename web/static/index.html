@@ -313,6 +313,54 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
   </div>
 </div>
 
+<div id="face-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(74,53,64,.45);display:none;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:900px;max-width:94vw;max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px">下段の顔位置を指定</h2>
+      <button class="btn-secondary" onclick="closeFacePicker()">閉じる</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">
+      静止画の上で顔を囲むようにドラッグしてください。囲んだ範囲が下段にちょうど収まるよう、位置とズームを自動計算します。
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)">
+      <span style="flex-shrink:0">静止画の時刻</span>
+      <button class="btn-secondary" id="face-t-prev" style="font-size:11px;padding:4px 8px;flex-shrink:0">◀ 1秒</button>
+      <input type="range" id="face-t-range" step="0.1" style="flex:1;min-width:120px">
+      <button class="btn-secondary" id="face-t-next" style="font-size:11px;padding:4px 8px;flex-shrink:0">1秒 ▶</button>
+      <b id="face-t-label" style="font-family:monospace;flex-shrink:0">00:00:00</b>
+    </div>
+
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div id="face-stage" style="position:relative;flex:1;min-width:320px;background:#151015;border:1px solid var(--border);border-radius:8px;overflow:hidden;user-select:none;cursor:crosshair">
+        <img id="face-frame" style="display:block;width:100%;height:auto;pointer-events:none" alt="">
+        <div id="face-sel" style="position:absolute;display:none;border:2px solid var(--accent);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none"></div>
+        <div id="face-actual" style="position:absolute;display:none;border:2px dashed rgba(255,255,255,.85);pointer-events:none"></div>
+        <div id="face-hint" style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding-top:10px;pointer-events:none">
+          <span style="background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px">ドラッグして顔を囲む（点線＝現在の表示範囲）</span>
+        </div>
+      </div>
+
+      <div style="width:210px;flex-shrink:0;display:flex;flex-direction:column;gap:8px">
+        <div id="face-preview-label" style="font-size:11px;color:var(--muted);font-weight:600">下段プレビュー</div>
+        <div id="face-preview" style="position:relative;width:210px;background:#151015;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <img id="face-preview-img" style="position:absolute;max-width:none" alt="">
+        </div>
+        <div id="face-values" style="font-size:11px;color:var(--muted);font-family:monospace;line-height:1.7"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <input type="checkbox" id="face-apply-all" checked> すべてのクリップに適用
+        </label>
+      </div>
+    </div>
+
+    <div id="face-status" style="font-size:12px;color:var(--red-strong)"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn-secondary" onclick="closeFacePicker()">キャンセル</button>
+      <button class="btn-primary" id="face-apply-btn" onclick="applyFacePicker()" disabled>この範囲を適用</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
     <rect width="26" height="26" rx="9" fill="#FF7FB0"/>
@@ -350,6 +398,12 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
     <div class="phase-actions">
       <button class="btn-primary" id="ph1-btn" onclick="runPhase1(false)">▶ ダウンロード</button>
       <button class="btn-secondary" id="ph1-chat-btn" onclick="runPhase1(true)">💬 チャットのみ DL</button>
+    </div>
+    <div id="ph1-progress" hidden class="prog-block">
+      <div class="prog-row">
+        <div class="prog-meta"><span id="ph1-dl-label">ダウンロード</span><span id="ph1-dl-pct">0%</span></div>
+        <div class="prog-track"><div class="prog-fill" id="ph1-dl-fill" style="width:0%"></div></div>
+      </div>
     </div>
     <div id="ph1-log" class="log-wrap" hidden>
       <div class="log-label">ログ</div>
@@ -462,14 +516,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <div class="field">
         <label>文字起こしファイル</label>
         <div class="file-wrap">
-          <select id="p3-trans"><option value="">-- 選択してください --</option></select>
+          <select id="p3-trans" onchange="onP3TransChange()"><option value="">-- 選択してください --</option></select>
           <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p3-trans','transcription')">↺</button>
         </div>
       </div>
       <div class="field">
         <label>ライブチャット（省略可）</label>
         <div class="file-wrap">
-          <select id="p3-chat"><option value="">-- 選択 --</option></select>
+          <select id="p3-chat" onchange="onP3ChatChange()"><option value="">-- 選択 --</option></select>
           <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p3-chat','chat')">↺</button>
         </div>
       </div>
@@ -514,14 +568,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <div class="field">
         <label>動画ファイル</label>
         <div class="file-wrap">
-          <select id="p4-video"><option value="">-- 選択してください --</option></select>
+          <select id="p4-video" onchange="onP4VideoChange()"><option value="">-- 選択してください --</option></select>
           <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p4-video','video')">↺</button>
         </div>
       </div>
       <div class="field">
         <label>文字起こし</label>
         <div class="file-wrap">
-          <select id="p4-trans"><option value="">-- 選択してください --</option></select>
+          <select id="p4-trans" onchange="onP4TransChange()"><option value="">-- 選択してください --</option></select>
           <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p4-trans','transcription')">↺</button>
         </div>
       </div>
@@ -723,6 +777,49 @@ function updateTranscribeProgress(text) {
   }
 }
 
+// ── Download progress parser ────────────────────────────────────────────────
+// yt-dlp --newline lines look like:
+//   [download]  12.3% of ~ 45.00MiB at    1.23MiB/s ETA 00:20
+//   [download] 100% of   45.00MiB in 00:00:23 at 1.95MiB/s
+//   [download] Destination: foo.f303.mp4
+//   [Merger] Merging formats into "foo.mp4"
+// bestvideo+bestaudio means this runs twice (video, then audio) before merging.
+function updateDownloadProgress(text) {
+  const prog = document.getElementById('ph1-progress');
+  const pctEl = document.getElementById('ph1-dl-pct');
+  const fillEl = document.getElementById('ph1-dl-fill');
+  const labelEl = document.getElementById('ph1-dl-label');
+
+  if (text.startsWith('[download] Destination:')) {
+    prog.hidden = false;
+    labelEl.textContent = 'ダウンロード';
+    pctEl.textContent = '0%';
+    fillEl.style.width = '0%';
+    return;
+  }
+
+  const pctM = text.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+  if (pctM) {
+    prog.hidden = false;
+    const pct = parseFloat(pctM[1]);
+    fillEl.style.width = pct + '%';
+    const speedM = text.match(/at\s+([\d.]+\s?\w+\/s)/);
+    const etaM = text.match(/ETA\s+(\S+)/);
+    let detail = pct.toFixed(1) + '%';
+    if (speedM) detail += ` • ${speedM[1]}`;
+    if (etaM) detail += ` • ETA ${etaM[1]}`;
+    pctEl.textContent = detail;
+    return;
+  }
+
+  if (text.startsWith('[Merger] Merging formats') || text.includes('ffmpeg')) {
+    prog.hidden = false;
+    labelEl.textContent = '動画と音声を結合中';
+    pctEl.textContent = '';
+    fillEl.style.width = '100%';
+  }
+}
+
 function showLog(n) {
   document.getElementById('ph' + n + '-log').hidden = false;
 }
@@ -751,6 +848,68 @@ async function refreshFiles(selectId, type) {
     sel.innerHTML = `<option value="">${escHtml(empty)}</option>` +
       files.map(f => `<option value="${escHtml(f)}"${f === cur ? ' selected' : ''}>${escHtml(f)}</option>`).join('');
   } catch (e) { /* ignore */ }
+}
+
+// ── Phase 4: cross-match video / transcription / clips selects by filename ──
+// Naming convention (see pipeline.save_transcription / save_clips):
+//   video:          "{stem}.mp4"
+//   transcription:  "{stem}_{yyyymmdd}_{hhmmss}_full.json"
+//   clips:          "clips_{stem}_{yyyymmdd}_{hhmmss}.json"
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function baseNameNoExt(name) { return name.replace(/\.[^./]+$/, ''); }
+function transcriptionBase(transName) { return baseNameNoExt(transName).replace(/_full$/, ''); }
+function videoStemFromTranscriptionBase(base) { return base.replace(/_\d{8}_\d{6}$/, ''); }
+
+function selectOptionIfPresent(selectId, value) {
+  const sel = document.getElementById(selectId);
+  if (!sel || !value) return false;
+  const has = Array.from(sel.options).some(o => o.value === value);
+  if (has) { sel.value = value; return true; }
+  return false;
+}
+
+function onP4TransChange() {
+  const transFile = document.getElementById('p4-trans').value;
+  if (!transFile) return;
+  const base = transcriptionBase(transFile);
+  selectOptionIfPresent('p4-video', `${videoStemFromTranscriptionBase(base)}.mp4`);
+  selectOptionIfPresent('p4-clips', `clips_${base}.json`);
+}
+
+function onP4VideoChange() {
+  const videoFile = document.getElementById('p4-video').value;
+  if (!videoFile) return;
+  const stem = baseNameNoExt(videoFile);
+  const transSel = document.getElementById('p4-trans');
+  const re = new RegExp(`^${escapeRegExp(stem)}_\\d{8}_\\d{6}_full\\.json$`);
+  const match = Array.from(transSel.options).map(o => o.value).find(v => re.test(v));
+  if (match) {
+    transSel.value = match;
+    onP4TransChange();
+  }
+}
+
+// ── Phase 3: cross-match transcription / chat selects by filename ──
+// /api/files?type=chat lists the raw yt-dlp output in downloads/ (see
+// pipeline.download_video): "{video_stem}.live_chat.json" — same video_stem
+// that prefixes the transcription file, NOT the "chat_{base}.json" copy that
+// pipeline.save_chat() writes into transcriptions/ later (that one isn't
+// exposed via /api/files).
+function onP3TransChange() {
+  const transFile = document.getElementById('p3-trans').value;
+  if (!transFile) return;
+  const videoStem = videoStemFromTranscriptionBase(transcriptionBase(transFile));
+  selectOptionIfPresent('p3-chat', `${videoStem}.live_chat.json`);
+}
+
+function onP3ChatChange() {
+  const chatFile = document.getElementById('p3-chat').value;
+  if (!chatFile) return;
+  const videoStem = chatFile.replace(/\.live_chat\.json$/, '');
+  const transSel = document.getElementById('p3-trans');
+  const re = new RegExp(`^${escapeRegExp(videoStem)}_\\d{8}_\\d{6}_full\\.json$`);
+  const match = Array.from(transSel.options).map(o => o.value).find(v => re.test(v));
+  if (match) transSel.value = match;
 }
 
 async function initAllFileLists() {
@@ -834,6 +993,10 @@ async function runPhase1(chatOnly = false) {
   if (!url) { alert('YouTube URL を入力してください'); return; }
 
   clearPhaseUI(1);
+  document.getElementById('ph1-progress').hidden = true;
+  document.getElementById('ph1-dl-label').textContent = 'ダウンロード';
+  document.getElementById('ph1-dl-pct').textContent = '0%';
+  document.getElementById('ph1-dl-fill').style.width = '0%';
   showLog(1);
   setPhaseState(1, 'running');
   const btnId = chatOnly ? 'ph1-chat-btn' : 'ph1-btn';
@@ -890,6 +1053,11 @@ async function runPhase1(chatOnly = false) {
           chip.innerHTML = chips.join(' ');
           chip.hidden = false;
         }
+        if (!document.getElementById('ph1-progress').hidden) {
+          document.getElementById('ph1-dl-label').textContent = '完了';
+          document.getElementById('ph1-dl-pct').textContent = '100%';
+          document.getElementById('ph1-dl-fill').style.width = '100%';
+        }
         setPhaseState(1, 'done');
         resetBtns();
         es.close();
@@ -900,7 +1068,7 @@ async function runPhase1(chatOnly = false) {
         showError(1, msg.error);
         es.close();
       }
-    });
+    }, updateDownloadProgress);
   } catch (err) {
     setPhaseState(1, 'error');
     resetBtns();
@@ -1257,7 +1425,7 @@ function syncAllSliders(sliderClass, valClass, value, fmt) {
 
 function buildClipCard(clip, idx) {
   const card = document.createElement('div');
-  card.className = 'clip-card';
+  card.className = 'clip-card sel';
   // Preserve fields that have no UI controls
   card.dataset.cutIntervals = JSON.stringify(clip.cutIntervals || null);
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
@@ -1274,7 +1442,7 @@ function buildClipCard(clip, idx) {
 
   card.innerHTML = `
     <div class="clip-top">
-      <input type="checkbox" class="clip-cb">
+      <input type="checkbox" class="clip-cb" checked>
       <textarea class="clip-title-input" rows="2">${escHtml(clip.title)}</textarea>
     </div>
     <div class="clip-times">
@@ -1338,6 +1506,9 @@ function buildClipCard(clip, idx) {
           <input type="radio" class="clip-vmode" name="vmode-${idx}" value="split" ${(!clip.verticalMode || clip.verticalMode === 'split') ? 'checked' : ''}>
           二段構成（全体＋顔）
         </label>
+      </div>
+      <div class="clip-face-pick-row" style="display:${(!clip.verticalMode || clip.verticalMode === 'split') ? 'block' : 'none'}">
+        <button class="clip-face-pick-btn btn-secondary" style="width:100%;font-size:12px;padding:6px 10px">🎯 静止画から顔位置を指定</button>
       </div>
       <div class="clip-crop-row">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
@@ -1442,13 +1613,20 @@ function buildClipCard(clip, idx) {
   });
 
   // vmode切替時に上段スライダーの表示を制御
+  // 顔位置ピッカーは二段構成モード専用（クロップモードでは cropX/faceCamY の意味が違う）
   const mainOptions = card.querySelector('.clip-main-options');
+  const facePickRow = card.querySelector('.clip-face-pick-row');
   card.querySelectorAll('.clip-vmode').forEach(r => {
     r.addEventListener('change', () => {
       mainOptions.style.display = r.value === 'split' && r.checked ? 'flex' : mainOptions.style.display;
-      if (r.checked) mainOptions.style.display = r.value === 'split' ? 'flex' : 'none';
+      if (r.checked) {
+        mainOptions.style.display = r.value === 'split' ? 'flex' : 'none';
+        facePickRow.style.display = r.value === 'split' ? 'block' : 'none';
+      }
     });
   });
+
+  card.querySelector('.clip-face-pick-btn').addEventListener('click', () => openFacePicker(card));
 
   card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
 
@@ -1487,6 +1665,277 @@ function buildClipCard(clip, idx) {
   });
 
   return card;
+}
+
+
+// ── 顔位置ピッカー（二段構成モードの下段） ─────────────────────────────────
+// 静止画の上で囲んだ矩形を cropX / faceCamZoom / faceCamY に逆算する。
+// 下段の組み立ては ClipComposition.tsx の二段構成モードブロックがオリジナル:
+//   faceCamInnerH = bottomH * faceCamZoom          （高さが下段の zoom 倍になるよう拡大）
+//   faceCamInnerW = faceCamInnerH * srcAspect
+//   top  = -(faceCamInnerH - bottomH) * faceCamY/100
+//   left = clamp(seqW/2 - faceCamInnerW * cropX/100, -(faceCamInnerW - seqW), 0)
+// つまり下段に映る元動画の範囲は
+//   縦: 高さ比 vh = 1/zoom、開始位置 = (1 - vh) * faceCamY/100
+//   横: 幅比   vw = seqW / (bottomH * zoom * srcAspect)、中心 = cropX/100
+// この2式を解いたものが fitFaceCam()。bottomH はタイトルバーの高さに依存するため
+// /api/split-geometry（premiere_export.split_geometry）から取得する。
+const FACE_ZOOM_MAX = 8, FACE_ZOOM_STEP = 0.01;  // .clip-face-zoom スライダーの上限と刻み
+
+const facePicker = { card: null, geo: null, srcAspect: 16/9, rect: null, fit: null, video: null };
+
+function fitFaceCam(rect, geo, srcAspect) {
+  const rw = Math.min(1, Math.max(rect.w, 0.01));
+  const rh = Math.min(1, Math.max(rect.h, 0.01));
+  // 囲った範囲がちょうど収まる zoom（縦・横それぞれの限界のうち厳しい方）
+  const zoomByHeight = 1 / rh;
+  const zoomByWidth = geo.seqW / (geo.bottomH * srcAspect * rw);
+  // 下段は隙間なく埋める前提。ここを下回ると左右（zoom<1 なら上下）に黒帯が出るので、
+  // スライダーの刻みに切り上げてから下限にする（丸めで下回らないように）。
+  const lo = Math.ceil(Math.max(1, geo.seqW / (geo.bottomH * srcAspect)) / FACE_ZOOM_STEP) * FACE_ZOOM_STEP;
+  const quantized = Math.round(Math.min(zoomByHeight, zoomByWidth) / FACE_ZOOM_STEP) * FACE_ZOOM_STEP;
+  const zoom = Math.round(Math.min(FACE_ZOOM_MAX, Math.max(lo, quantized)) * 100) / 100;
+
+  const vh = Math.min(1, 1 / zoom);
+  const vw = Math.min(1, geo.seqW / (geo.bottomH * zoom * srcAspect));
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  // faceCamY は「はみ出し量のうち上に隠す割合」、cropX は「下段の中央に来る横位置」
+  const faceCamY = vh >= 1 ? 0
+    : Math.round((Math.min(Math.max(cy - vh / 2, 0), 1 - vh) / (1 - vh)) * 100);
+  const cropX = Math.round(Math.min(Math.max(cx, vw / 2), 1 - vw / 2) * 100);
+  const params = { cropX, faceCamY, faceCamZoom: zoom };
+  return { ...params, window: faceCamWindow(params, geo, srcAspect) };
+}
+
+// 下段に実際に映る元動画の範囲（0〜1）。上の逆算とは違い、ClipComposition.tsx の
+// 二段構成モードそのままの式なので、プレビューと点線枠が本番と一致する。
+function faceCamWindow(p, geo, srcAspect) {
+  const innerH = Math.round(geo.bottomH * p.faceCamZoom);
+  const innerW = Math.round(innerH * srcAspect);
+  const top = -Math.round((innerH - geo.bottomH) * (p.faceCamY / 100));
+  const left = Math.max(-(innerW - geo.seqW), Math.min(0, Math.round(geo.seqW / 2 - innerW * (p.cropX / 100))));
+  return { x: -left / innerW, y: -top / innerH, w: geo.seqW / innerW, h: geo.bottomH / innerH };
+}
+
+function openFacePicker(card) {
+  const video = (document.getElementById('p4-video').value || phaseOut.video || '').trim();
+  if (!video) { alert('先に動画ファイルを選択してください'); return; }
+
+  const start = parseSec(card.querySelector('.t-start').value);
+  const end = parseSec(card.querySelector('.t-end').value);
+  facePicker.card = card;
+  facePicker.video = video;
+  facePicker.rect = null;
+  facePicker.fit = null;
+  facePicker.srcAspect = parseFloat(card.dataset.srcAspect)
+    || parseFloat(document.getElementById('p4-src-orientation').value)
+    || phaseOut.srcAspect || 16/9;
+
+  const range = document.getElementById('face-t-range');
+  range.min = start;
+  range.max = Math.max(start, end);
+  range.value = (start + end) / 2;
+
+  document.getElementById('face-status').textContent = '';
+  document.getElementById('face-sel').style.display = 'none';
+  document.getElementById('face-actual').style.display = 'none';
+  document.getElementById('face-hint').style.display = 'flex';
+  document.getElementById('face-values').textContent = '';
+  document.getElementById('face-preview-img').removeAttribute('src');
+  document.getElementById('face-apply-btn').disabled = true;
+  document.getElementById('face-overlay').style.display = 'flex';
+
+  loadFaceFrame();
+  refreshFaceGeometry();
+}
+
+function closeFacePicker() {
+  document.getElementById('face-overlay').style.display = 'none';
+  facePicker.card = null;
+}
+
+async function refreshFaceGeometry() {
+  const card = facePicker.card;
+  if (!card) return;
+  try {
+    const res = await fetch('/api/split-geometry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: card.querySelector('.clip-title-input').value,
+        splitTopRatio: parseInt(card.querySelector('.clip-split-top-ratio').value, 10),
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.status);
+    facePicker.geo = await res.json();
+    const box = document.getElementById('face-preview');
+    box.style.height = Math.round(box.clientWidth * facePicker.geo.bottomH / facePicker.geo.seqW) + 'px';
+    if (facePicker.rect) updateFaceFit(); else showCurrentFraming();
+  } catch (err) {
+    document.getElementById('face-status').textContent = `下段サイズを取得できませんでした: ${err.message}`;
+  }
+}
+
+function loadFaceFrame() {
+  const t = parseFloat(document.getElementById('face-t-range').value) || 0;
+  document.getElementById('face-t-label').textContent = secToHMS(t);
+  const url = `/api/frame?video=${encodeURIComponent(facePicker.video)}&t=${t.toFixed(2)}`;
+  const img = document.getElementById('face-frame');
+  img.onerror = () => {
+    document.getElementById('face-status').textContent = 'この時刻のフレームを取得できませんでした';
+  };
+  img.onload = () => {
+    document.getElementById('face-status').textContent = '';
+    document.getElementById('face-preview-img').src = url;
+    if (facePicker.rect) updateFaceFit(); else showCurrentFraming();
+  };
+  img.src = url;
+}
+
+function renderFaceFit(fit, isCurrent) {
+  const stage = document.getElementById('face-stage');
+  const frame = document.getElementById('face-frame');
+  const sw = stage.clientWidth, sh = frame.clientHeight;
+  const actual = document.getElementById('face-actual');
+  actual.style.display = 'block';
+  actual.style.left = (fit.window.x * sw) + 'px';
+  actual.style.top = (fit.window.y * sh) + 'px';
+  actual.style.width = (fit.window.w * sw) + 'px';
+  actual.style.height = (fit.window.h * sh) + 'px';
+
+  // プレビューは静止画そのものを可視範囲だけ切り出して見せる（枠の比率 = 下段の比率）
+  const box = document.getElementById('face-preview');
+  const pImg = document.getElementById('face-preview-img');
+  const imgW = box.clientWidth / fit.window.w;
+  const imgH = frame.naturalWidth ? imgW * frame.naturalHeight / frame.naturalWidth
+                                  : imgW / facePicker.srcAspect;
+  pImg.style.width = imgW + 'px';
+  pImg.style.height = imgH + 'px';
+  pImg.style.left = (-fit.window.x * imgW) + 'px';
+  pImg.style.top = (-fit.window.y * imgH) + 'px';
+
+  document.getElementById('face-preview-label').textContent =
+    isCurrent ? '下段プレビュー（現在の設定）' : '下段プレビュー（適用後）';
+  document.getElementById('face-values').innerHTML =
+    `顔の位置: <b>${fit.cropX}</b>%<br>zoom: <b>${fit.faceCamZoom}</b>x<br>縦位置: <b>${fit.faceCamY}</b>%`;
+}
+
+function updateFaceFit() {
+  const { rect, geo, srcAspect } = facePicker;
+  if (!rect || !geo) return;
+  facePicker.fit = fitFaceCam(rect, geo, srcAspect);
+  renderFaceFit(facePicker.fit, false);
+  document.getElementById('face-apply-btn').disabled = false;
+}
+
+// 何も囲っていない間は、そのクリップの現在の設定で何が映っているかを見せる
+function showCurrentFraming() {
+  const { card, geo, srcAspect } = facePicker;
+  if (!card || !geo || !document.getElementById('face-frame').naturalWidth) return;
+  const params = {
+    cropX: parseFloat(card.querySelector('.clip-crop-x').value),
+    faceCamZoom: parseFloat(card.querySelector('.clip-face-zoom').value),
+    faceCamY: parseFloat(card.querySelector('.clip-face-y').value),
+  };
+  renderFaceFit({ ...params, window: faceCamWindow(params, geo, srcAspect) }, true);
+}
+
+function resetFaceSelection() {
+  facePicker.rect = null;
+  facePicker.fit = null;
+  document.getElementById('face-sel').style.display = 'none';
+  document.getElementById('face-hint').style.display = 'flex';
+  document.getElementById('face-apply-btn').disabled = true;
+  showCurrentFraming();
+}
+
+function applyFacePicker() {
+  const { card, fit } = facePicker;
+  if (!card || !fit) return;
+  const targets = document.getElementById('face-apply-all').checked
+    ? Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card'))
+    : [card];
+  targets.forEach(c => {
+    c.querySelector('.clip-crop-x').value = fit.cropX;
+    c.querySelector('.crop-x-val').textContent = fit.cropX;
+    c.querySelector('.clip-face-zoom').value = fit.faceCamZoom;
+    c.querySelector('.face-zoom-val').textContent = fit.faceCamZoom.toFixed(2);
+    c.querySelector('.clip-face-y').value = fit.faceCamY;
+    c.querySelector('.face-y-val').textContent = fit.faceCamY;
+  });
+  closeFacePicker();
+}
+
+function initFacePicker() {
+  const stage = document.getElementById('face-stage');
+  const sel = document.getElementById('face-sel');
+  let dragging = false, ox = 0, oy = 0;
+
+  const norm = e => {
+    const r = stage.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1),
+      y: Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1),
+    };
+  };
+  const draw = (a, b) => {
+    const rect = {
+      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+      w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y),
+    };
+    sel.style.display = 'block';
+    sel.style.left = (rect.x * 100) + '%';
+    sel.style.top = (rect.y * 100) + '%';
+    sel.style.width = (rect.w * 100) + '%';
+    sel.style.height = (rect.h * 100) + '%';
+    return rect;
+  };
+
+  stage.addEventListener('pointerdown', e => {
+    // 静止画がまだ来ていないうちは高さ0で座標が出せない
+    if (!facePicker.card || !stage.getBoundingClientRect().height) return;
+    dragging = true;
+    stage.setPointerCapture(e.pointerId);
+    const p = norm(e);
+    ox = p.x; oy = p.y;
+    document.getElementById('face-hint').style.display = 'none';
+    draw({ x: ox, y: oy }, p);
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    facePicker.rect = draw({ x: ox, y: oy }, norm(e));
+    updateFaceFit();
+  });
+  const finish = e => {
+    if (!dragging) return;
+    dragging = false;
+    const rect = draw({ x: ox, y: oy }, norm(e));
+    // クリックだけ（ドラッグ幅ゼロ）は選択解除として扱う
+    if (rect.w < 0.01 || rect.h < 0.01) { resetFaceSelection(); return; }
+    facePicker.rect = rect;
+    updateFaceFit();
+  };
+  stage.addEventListener('pointerup', finish);
+  stage.addEventListener('pointercancel', finish);
+
+  const range = document.getElementById('face-t-range');
+  let seekTimer = null;
+  range.addEventListener('input', () => {
+    document.getElementById('face-t-label').textContent = secToHMS(parseFloat(range.value) || 0);
+    clearTimeout(seekTimer);
+    seekTimer = setTimeout(loadFaceFrame, 250);
+  });
+  const nudge = d => () => {
+    range.value = Math.min(parseFloat(range.max), Math.max(parseFloat(range.min), (parseFloat(range.value) || 0) + d));
+    loadFaceFrame();
+  };
+  document.getElementById('face-t-prev').addEventListener('click', nudge(-1));
+  document.getElementById('face-t-next').addEventListener('click', nudge(1));
+
+  document.getElementById('face-overlay').addEventListener('click', e => {
+    if (e.target.id === 'face-overlay') closeFacePicker();
+  });
 }
 
 
@@ -1661,7 +2110,12 @@ async function openInStudio() {
       body: JSON.stringify({ video_path: videoFile, transcription_path: transFile, clips }),
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
-    const { url } = await res.json();
+    const { url, reverted } = await res.json();
+    // Studio 上でずらした Offset/Scale 等の書き戻しは起動のたびに破棄される
+    if (reverted && reverted.length) {
+      showLog(4);
+      appendLog('ph4-console', '✓ Studio で変更されたレイアウトを元に戻しました: ' + reverted.join(', '));
+    }
     window.open(url, 'remotion-studio');
   } catch (err) {
     alert('Studio の起動に失敗しました: ' + err.message);
@@ -2110,6 +2564,7 @@ initAllFileLists();
 refreshSettingsBanner();
 onTransModelChange();
 loadThemes();
+initFacePicker();
 </script>
 </body>
 </html>

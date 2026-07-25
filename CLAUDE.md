@@ -72,18 +72,73 @@ Not reproducible downstream, and therefore Remotion-only: karaoke active-word hi
 One thing to know before touching it: `compute_keep_intervals()` / `remap_captions_to_cuts()`
 in `pipeline.py` are **line-by-line ports of the `intervals` and `effectiveCaptions` useMemos
 in `ClipComposition.tsx`**, and `premiere_export.compute_layers()` mirrors that file's layout
-math (including the hand-tuned `translate: "-63.5px -31.7px"` split nudge and the title-bar
-height calculation). `compute_layers()` is the single source for both the ffmpeg filtergraph
+math (including the title-bar height calculation). `compute_layers()` is the single source for
+both the ffmpeg filtergraph
 and the sequence dimensions, so exports stay self-consistent — but changing the TSX without
 mirroring it here makes a Remotion render and a Premiere export disagree. The two were verified
 to agree to the pixel (SSIM 0.98 against a Remotion still of the same frame; ±1px of crop
 offset drops it to 0.97).
 
+`split_geometry()` (the safe-area / title-bar / two-panel split) is factored out of
+`compute_layers()` because the face-position picker needs the bottom panel's height too —
+see the next section.
+
+### Face-position picker (split mode's bottom panel)
+`cropX` / `faceCamZoom` / `faceCamY` are hard to set blind, so the clip card has a
+「🎯 静止画から顔位置を指定」 button (split mode only — in crop mode the same three fields
+mean different things). It opens a still from the source video, the user drags a box around
+the face, and `fitFaceCam()` in `web/static/index.html` solves ClipComposition's bottom-panel
+equations backwards for the three values, choosing the tightest zoom that still contains the
+box and never one that would leave a black edge.
+
+Two endpoints back it:
+- `GET /api/frame?video=&t=` — one JPEG via ffmpeg, downscaled to ≤1280px wide.
+- `POST /api/split-geometry` — `{title, splitTopRatio}` → panel bounds, from
+  `premiere_export.split_geometry()`. The browser cannot derive `bottomH` itself: it depends
+  on the title bar, whose height only that module's port of `calcTitleBar()` knows.
+
+`faceCamWindow()` next to `fitFaceCam()` is a **fourth copy** of the bottom-panel framing
+formula, deliberately kept so the picker's preview and dashed overlay show exactly what will
+be rendered. It is verified to agree with `compute_layers()` bit-for-bit, so it inherits that
+function's pixel-level agreement with Remotion — but it is one more place to update when the
+TSX's 二段構成モード block changes.
+
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).
 - `remotion/src/CaptionPage.tsx` — Renders one TikTok-style caption page with karaoke-style active-word highlighting (white text, pink active token).
-- `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (auto-generated for Remotion Studio preview).
-- `remotion/src/studioCompositions.tsx` — **Auto-generated** by `app.py`'s `_generate_studio_compositions()` when "Studio で確認" is clicked. Do not edit manually.
+- `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (the per-clip Studio preview compositions, auto-generated into `studio-src/`).
+- `remotion/src/studioCompositions.tsx` — a **stub** (`() => null`) that only exists so
+  `Root.tsx` compiles for CLI renders. The real per-clip compositions are generated into
+  `remotion/studio-src/` — see below.
+- `remotion/src/studioViewReset.ts` — Studio keeps the preview canvas' zoom and pan in
+  `localStorage`, so an accidental ctrl+scroll survives a Studio restart with no obvious way
+  back. Every "Studio で確認" press stamps a fresh token into the generated file (which is why
+  it is rewritten unconditionally), and this module clears that view state when it sees a new
+  one. It relies on the user bundle being evaluated *before* `@remotion/studio`'s preview entry
+  — see `getStudioEntryPoints()` — so on a normal page load clearing the keys is enough; it
+  reloads only when the file arrived via hot reload into an already-open tab.
+
+#### Why Studio runs on a throwaway copy (`remotion/studio-src/`)
+Remotion Studio is not read-only: editing a Sequence's **Offset**, an element's
+**Scale / Translate / Rotate**, or saving from the Props editor **rewrites the source file that
+declares that JSX** — i.e. `ClipComposition.tsx` itself (it also inlines `defaultProps` into
+`Root.tsx` on the first props save). A stray drag therefore silently changes what every
+subsequent CLI render produces, and the only undo is right-click → Reset per field.
+
+So `/api/studio/open` mirrors `remotion/src` into `remotion/studio-src` (`_sync_studio_src()`)
+and starts Studio with `studio-src/index.ts` as its entry point. Studio's write-backs land in
+the copy; every "Studio で確認" press overwrites the copy from `remotion/src` again, which is
+what makes the button reset the layout. Files that had to be restored come back in the
+response's `reverted` field and are logged in the phase-4 console.
+
+- `remotion/src` stays the single source of truth, and is what `pipeline.render_clip()` bundles.
+- `studio-src/` must sit directly under `remotion/` (sibling of `src/`): `ClipComposition.tsx`
+  imports `../public/Onoma-Pop04.mp3`, and node module resolution walks up to
+  `remotion/node_modules`. It is gitignored and excluded from `tsconfig.json`.
+- Tweaking a value *in Studio* is fine for experimenting, but to keep it you must copy it into
+  `remotion/src` yourself before the next press.
+- `npm start` in `remotion/` still runs Studio on `src/` directly — that instance **can** write
+  to the real sources, and shows no clip compositions (the stub).
 
 ### Transcription (`audio-chunking/`, `web/`) — Gemini is not used here, only for clip suggestion
 - `web/elevenlabs_transcribe.py` — **Default** backend. ElevenLabs Speech-to-Text has no file size/duration limit, so the whole preprocessed audio file is sent in a single request (no chunking). Talks to the REST endpoint directly with `requests` rather than the official `elevenlabs` SDK — that package's `client.py` eagerly imports every product line (dubbing, voices, studio, conversational AI, ...), and some of those paths are deep enough to exceed Windows' MAX_PATH once staged into the installer. Its response only has word-level timestamps, not segments, so `_words_to_segments()` regroups words into Whisper/Groq-like sentence segments (splits on silence gaps, sentence-ending punctuation, or length) for the rest of the pipeline.
@@ -111,7 +166,12 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `cropX` — horizontal crop position 0–100%
 - `faceCamZoom`, `faceCamY` — for split mode face-cam
 - `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
-- `captions` — list of `{text, startMs, endMs}` relative to clip start
+- `captions` — list of `{text, startMs, endMs, effect?, isComment?}` relative to clip start. Not stored
+  on the clip itself — `pipeline.make_captions()` rebuilds this fresh from the transcript segments
+  (`*_full.json`) on every render. `effect` is auto-detected per segment
+  (`detect_effect_for_segment()`); `isComment` comes from that segment's `is_comment: true` flag and
+  switches `CaptionPage` to the icon+bubble "コメント" rendering instead of the normal caption style —
+  set it by hand-editing the segment in `*_full.json`, there is no UI for it yet.
 
 Old-format split clips using `_concat_group` / `_concat_index` are automatically migrated to `cutIntervals` by `pipeline.merge_split_clips()`.
 

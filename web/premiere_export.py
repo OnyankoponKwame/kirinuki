@@ -39,11 +39,6 @@ MAX_TITLE_FONT_PX = 140
 DEFAULT_SRC_ASPECT = 16 / 9
 SHORTS_SAFE_TOP_RATIO = 0.05
 
-# ClipComposition applies a hand-tuned nudge to the split-mode top panel
-# (`translate: "-63.5px -31.7px"`). Mirrored so the export frames identically.
-SPLIT_MAIN_NUDGE_X = -63.5
-SPLIT_MAIN_NUDGE_Y = -31.7
-
 # Encode settings for the exported material. CRF 18 is visually transparent at
 # these sizes while staying far smaller than an intermediate codec.
 VIDEO_CODEC_ARGS = [
@@ -157,6 +152,45 @@ def sequence_size(clip: dict) -> tuple[int, int]:
     return (1080, 1920) if clip.get("vertical") else (1920, 1080)
 
 
+@dataclass(frozen=True)
+class SplitGeometry:
+    """Where the two panels of 二段構成モード sit vertically in the sequence."""
+    seq_w: int
+    seq_h: int
+    safe_top: int
+    title_bar_h: int
+    main_top: int
+    main_h: int
+    bottom_top: int
+    bottom_h: int
+
+
+def split_geometry(title: str, split_top_ratio: int, seq_w: int = 1080, seq_h: int = 1920) -> SplitGeometry:
+    """Split-mode panel bounds — mirrors ClipComposition.tsx's 二段構成モード block.
+
+    Separated from compute_layers() because the face-position picker in the web UI
+    needs the bottom panel's height to turn a rectangle drawn on a frame into
+    cropX / faceCamZoom / faceCamY, and the title bar's height (which the panel
+    boundary depends on) is only derivable from the title text by this module's
+    port of calcTitleBar().
+    """
+    safe_top = _jsround(seq_h * SHORTS_SAFE_TOP_RATIO)
+    title_bar_h = _calc_title_bar_height(title, seq_w)
+    main_top = safe_top + title_bar_h
+    main_h = _jsround((seq_h - main_top) * split_top_ratio / 10)
+    bottom_top = main_top + main_h
+    return SplitGeometry(
+        seq_w=seq_w,
+        seq_h=seq_h,
+        safe_top=safe_top,
+        title_bar_h=title_bar_h,
+        main_top=main_top,
+        main_h=main_h,
+        bottom_top=bottom_top,
+        bottom_h=seq_h - bottom_top,
+    )
+
+
 def compute_layers(clip: dict, src_aspect: float) -> list[Layer]:
     """Reproduce ClipComposition's framing as a stack of positioned video layers.
 
@@ -181,13 +215,11 @@ def compute_layers(clip: dict, src_aspect: float) -> list[Layer]:
         return [Layer("crop", left, top, scaled_w, scaled_h)]
 
     # Split: full-width panel on top, zoomed face-cam below.
-    safe_top = _jsround(seq_h * SHORTS_SAFE_TOP_RATIO)
-    title_bar_h = _calc_title_bar_height(str(clip.get("title", "")), seq_w)
-    main_top = safe_top + title_bar_h
-    top_ratio = int(clip.get("splitTopRatio", 5) or 5)
-    main_h = _jsround((seq_h - main_top) * top_ratio / 10)
-    bottom_top = main_top + main_h
-    bottom_h = seq_h - bottom_top
+    geo = split_geometry(
+        str(clip.get("title", "")), int(clip.get("splitTopRatio", 5) or 5), seq_w, seq_h,
+    )
+    main_top, main_h = geo.main_top, geo.main_h
+    bottom_top, bottom_h = geo.bottom_top, geo.bottom_h
 
     main_inner_h = _jsround(main_h * float(clip.get("mainZoom", 1.0) or 1.0))
     main_inner_w = _jsround(main_inner_h * src_aspect)
@@ -205,8 +237,8 @@ def compute_layers(clip: dict, src_aspect: float) -> list[Layer]:
     return [
         Layer(
             "main-panel",
-            main_video_left + SPLIT_MAIN_NUDGE_X,
-            main_top + main_video_top + SPLIT_MAIN_NUDGE_Y,
+            main_video_left,
+            main_top + main_video_top,
             main_inner_w,
             main_inner_h,
             window=(0, main_top, seq_w, main_top + main_h),

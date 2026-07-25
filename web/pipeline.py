@@ -184,12 +184,20 @@ def slim_live_chat(chat_path: Path, log: Callable[[str], None] | None = None) ->
         log(f"✓ Chat trimmed: {len(entries)} messages")
 
 
+# Chat reacts to what's said on stream, not simultaneously with it — viewers need to
+# hear/read the moment before typing — so a chat message's video-offset timestamp lands
+# noticeably after the moment it's actually reacting to. Shifting back by this much when
+# pairing chat with the transcription lines a reaction back up with its cause.
+CHAT_REACTION_LAG_SEC = 5.0
+
+
 def save_chat(chat_path: Path, transcription_path: Path) -> Path:
     """Reformat a live_chat.json into transcriptions/, paired with its transcription file.
 
     Mirrors save_transcription()/save_clips(): the pipeline should never read live chat
     straight out of downloads/ for clip suggestion — it reads this dedicated-folder copy,
-    saved once up front, same as the transcription.
+    saved once up front, same as the transcription. Timestamps are shifted back by
+    CHAT_REACTION_LAG_SEC to compensate for that reaction delay.
     """
     entries = _read_chat_entries(chat_path)
     out_dir = PROJECT_DIR / "transcriptions"
@@ -200,7 +208,10 @@ def save_chat(chat_path: Path, transcription_path: Path) -> Path:
     path = out_dir / f"chat_{base}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(
-            [{"t": round(t, 1), "text": text} for t, text in entries],
+            [
+                {"t": round(max(0.0, t - CHAT_REACTION_LAG_SEC), 1), "text": text}
+                for t, text in entries
+            ],
             f, indent=2, ensure_ascii=False,
         )
     return path
@@ -344,7 +355,11 @@ def run_transcription(
         raw = transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
     else:
         from elevenlabs_transcribe import transcribe_with_elevenlabs
-        raw = transcribe_with_elevenlabs(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
+        # TODO: 動作確認用のテスト値。将来的には設定画面などから指定できるようにする
+        keyterms = ["飴白"]
+        raw = transcribe_with_elevenlabs(
+            video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode, keyterms=keyterms
+        )
     return slim_transcription_result(raw)
 
 
@@ -916,6 +931,7 @@ def make_captions(
             continue
 
         effect = detect_effect_for_segment(seg)
+        is_comment = bool(seg.get("is_comment"))
 
         if len(text) >= 18:
             split_idx = text.find("、")
@@ -930,12 +946,17 @@ def make_captions(
             if effect:
                 p1["effect"] = effect
                 p2["effect"] = effect
+            if is_comment:
+                p1["isComment"] = True
+                p2["isComment"] = True
             captions.append(p1)
             captions.append(p2)
         else:
             cap: dict = {"text": " " + text, "startMs": start_ms, "endMs": end_ms}
             if effect:
                 cap["effect"] = effect
+            if is_comment:
+                cap["isComment"] = True
             captions.append(cap)
     return captions
 
