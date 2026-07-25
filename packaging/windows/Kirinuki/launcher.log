@@ -10,3 +10,39 @@
 2026-07-26 04:57:01  server ready, opening browser
 2026-07-26 04:57:01  pre-fetching cookies from chrome before browser opens
 2026-07-26 04:57:01  failed to pre-fetch cookies (other error): <MagicMock name='run().stderr' id='4353917056'>
+2026-07-26 05:11:33  launcher starting
+2026-07-26 05:11:33  server ready, opening browser
+2026-07-26 05:11:33  pre-fetching cookies from chrome before browser opens
+2026-07-26 05:11:33  failed to pre-fetch cookies (other error): <MagicMock name='run().stderr' id='4376779360'>
+2026-07-26 05:17:04  launcher starting
+2026-07-26 05:17:04  server ready, opening browser
+2026-07-26 05:17:04  pre-fetching cookies from chrome before browser opens
+2026-07-26 05:17:04  failed to pre-fetch cookies (other error): <MagicMock name='run().stderr' id='4313210256'>
+2026-07-26 05:18:20  launcher starting
+2026-07-26 05:18:20  server ready, showing startup prompt
+2026-07-26 05:18:20  pre-fetching cookies from chrome
+2026-07-26 05:18:20  failed to pre-fetch cookies: module 'subprocess' has no attribute 'CREATE_NO_WINDOW'
+2026-07-26 05:18:20  opening browser
+2026-07-26 05:18:20  showing server active dialog
+2026-07-26 05:18:20  user requested shutdown. exiting process.
+2026-07-26 05:18:26  launcher starting
+2026-07-26 05:18:26  server ready, showing startup prompt
+2026-07-26 05:18:26  pre-fetching cookies from chrome
+2026-07-26 05:18:26  failed to pre-fetch cookies: module 'subprocess' has no attribute 'CREATE_NO_WINDOW'
+2026-07-26 05:18:26  opening browser
+2026-07-26 05:18:26  showing server active dialog
+2026-07-26 05:18:26  user requested shutdown. exiting process.
+2026-07-26 05:18:42  launcher starting
+2026-07-26 05:18:42  server ready, showing startup prompt
+2026-07-26 05:18:42  pre-fetching cookies from chrome
+2026-07-26 05:18:42  failed to pre-fetch cookies: module 'subprocess' has no attribute 'CREATE_NO_WINDOW'
+2026-07-26 05:18:42  opening browser
+2026-07-26 05:18:42  showing server active dialog
+2026-07-26 05:18:42  user requested shutdown. exiting process.
+2026-07-26 05:18:53  launcher starting
+2026-07-26 05:18:53  server ready, showing startup prompt
+2026-07-26 05:18:53  pre-fetching cookies from chrome
+2026-07-26 05:18:53  failed to pre-fetch cookies (other error): <MagicMock name='run().stderr' id='4396607120'>
+2026-07-26 05:18:53  opening browser
+2026-07-26 05:18:53  showing server active dialog
+2026-07-26 05:18:53  user requested shutdown. exiting process.

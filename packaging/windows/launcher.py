@@ -121,63 +121,102 @@ def main() -> None:
             _show_error(f"サーバーが{START_TIMEOUT_SEC:.0f}秒以内に起動しませんでした。")
         return
 
-    _log("server ready, opening browser")
+    _log("server ready, showing startup prompt")
 
-    # ブラウザが起動される前に、yt-dlpを使ってクッキー情報をあらかじめ取得し、cookies.txtにキャッシュしておく
-    # これにより、ブラウザ起動後のクッキーデータベースのロック競合を回避します
-    try:
-        cookies_path = cfg.get_data_dir() / "cookies.txt"
-        if not cookies_path.exists():
-            _log("pre-fetching cookies from chrome before browser opens")
-            cookies_path.parent.mkdir(parents=True, exist_ok=True)
-            import subprocess
-            import ctypes
+    import ctypes
+    import subprocess
 
-            while True:
-                res = subprocess.run(
-                    [
-                        "yt-dlp",
-                        "--cookies-from-browser", "chrome",
-                        "--cookies", str(cookies_path),
-                        "--skip-download",
-                        "https://www.youtube.com"
-                    ],
-                    capture_output=True,
-                    text=True,
-                    **cfg.no_window_kwargs()
-                )
-                if res.returncode == 0:
-                    _log("cookies pre-fetched and cached successfully")
-                    break
+    should_open_browser = False
 
-                # クッキーのロックエラー（ブラウザ起動中）を検知
-                stderr_lower = res.stderr.lower()
-                if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "lock" in stderr_lower or "permission" in stderr_lower):
-                    _log("chrome cookies database locked. showing prompt to user.")
-                    if sys.platform == "win32":
-                        # MB_OKCANCEL = 1
-                        ret = ctypes.windll.user32.MessageBoxW(
-                            None,
-                            "YouTubeの制限回避に必要なクッキーの初期取得を行います。\n"
-                            "Chromeブラウザが起動中のためクッキーを取得できません。\n\n"
-                            "一度Chromeブラウザを完全に閉じた状態で、[OK] を押してください。\n"
-                            "（この設定は最初の1回のみ必要で、次回以降はChromeを開いたままでも動作します）",
-                            "Kirinuki - 初回クッキー設定",
-                            1,
+    # 1. 起動準備ダイアログを表示
+    if sys.platform == "win32":
+        # MB_OKCANCEL = 1
+        ret = ctypes.windll.user32.MessageBoxW(
+            None,
+            "Kirinuki サーバーが起動しました。\n"
+            "ブラウザの起動とクッキーの取得（ボット対策の回避用）を行います。\n\n"
+            "Chromeブラウザが開いている場合は、完全に閉じた状態で [OK] を押してください。\n"
+            "（手動で cookies.txt を配置済みの場合は [キャンセル] で進めてください）",
+            "Kirinuki - 起動準備",
+            1,
+        )
+        if ret == 1:  # IDOK
+            should_open_browser = True
+            try:
+                cookies_path = cfg.get_data_dir() / "cookies.txt"
+                if not cookies_path.exists():
+                    _log("pre-fetching cookies from chrome")
+                    cookies_path.parent.mkdir(parents=True, exist_ok=True)
+                    while True:
+                        res = subprocess.run(
+                            [
+                                "yt-dlp",
+                                "--cookies-from-browser", "chrome",
+                                "--write-cookies", str(cookies_path),
+                                "--skip-download",
+                                "https://www.youtube.com"
+                            ],
+                            capture_output=True,
+                            text=True,
+                            **cfg.no_window_kwargs()
                         )
-                        if ret == 2:  # IDCANCEL
-                            _log("user canceled cookie pre-fetch prompt")
+                        if res.returncode == 0:
+                            _log("cookies pre-fetched and cached successfully")
                             break
-                    else:
-                        break
-                else:
-                    _log(f"failed to pre-fetch cookies (other error): {res.stderr}")
-                    break
-    except Exception as e:
-        _log(f"failed to pre-fetch cookies: {e}")
 
-    webbrowser.open(f"http://{HOST}:{PORT}")
-    thread.join()
+                        # クッキーのロックエラーを検知
+                        stderr_lower = res.stderr.lower()
+                        if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "lock" in stderr_lower or "permission" in stderr_lower):
+                            _log("chrome cookies database locked during pre-fetch. showing prompt.")
+                            retry_ret = ctypes.windll.user32.MessageBoxW(
+                                None,
+                                "Chromeブラウザが起動中、またはバックグラウンドで実行中のためクッキーを取得できません。\n\n"
+                                "【解決方法】\n"
+                                "1. Chromeブラウザを完全に閉じてください（タスクバー右下のインジケーターやタスクマネージャー等でプロセスが残っていないか確認してください）。その後、[OK] を押してください。\n\n"
+                                "2. または、ブラウザ拡張機能を使ってクッキーをエクスポートし、以下のフォルダに「cookies.txt」として手動保存してから [キャンセル] を押してください。\n"
+                                f"保存先フォルダ: {cookies_path.parent}",
+                                "Kirinuki - 初回クッキー設定",
+                                1, # MB_OKCANCEL
+                            )
+                            if retry_ret == 2:  # IDCANCEL
+                                _log("user canceled cookie pre-fetch prompt")
+                                break
+                        else:
+                            _log(f"failed to pre-fetch cookies (other error): {res.stderr}")
+                            break
+            except Exception as e:
+                _log(f"failed to pre-fetch cookies: {e}")
+    else:
+        # win32以外はデフォルトで自動起動に進む
+        should_open_browser = True
+
+    # 2. 必要に応じてブラウザを起動
+    if should_open_browser:
+        _log("opening browser")
+        webbrowser.open(f"http://{HOST}:{PORT}")
+
+    # 3. 実行中常駐ダイアログを表示
+    _log("showing server active dialog")
+    if sys.platform == "win32":
+        # MB_OK = 0
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            "Kirinuki サーバーを実行中です。\n\n"
+            "アプリの利用を終了する場合は、[OK] を押してください。\n"
+            "Python サーバーと関連プロセスが完全にシャットダウンします。",
+            "Kirinuki サーバーマネージャー",
+            0,
+        )
+    else:
+        # win32以外はキー入力待機などの簡易ブロック
+        _log("press enter to shutdown in non-windows")
+        try:
+            input()
+        except KeyboardInterrupt:
+            pass
+
+    _log("user requested shutdown. exiting process.")
+    os._exit(0)
 
 
 if __name__ == "__main__":

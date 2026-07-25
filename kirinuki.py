@@ -28,7 +28,7 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
     if cookies_path.exists():
         cookie_args = ["--cookies", str(cookies_path)]
     else:
-        cookie_args = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+        cookie_args = ["--cookies-from-browser", "chrome", "--write-cookies", str(cookies_path)]
 
     cmd = [
         "yt-dlp",
@@ -57,7 +57,7 @@ def download_video(url: str, output_dir: Path) -> tuple[Path, Path | None]:
                     retry_cmd.append(arg)
                     continue
                 if arg == "--cookies":
-                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
+                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--write-cookies"])
                     continue
                 retry_cmd.append(arg)
             result = subprocess.run(
