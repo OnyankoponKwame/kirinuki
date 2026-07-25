@@ -4,22 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (Gemini by default; ElevenLabs Scribe and Groq Whisper are also selectable), uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
+Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (Gemini by default; ElevenLabs Scribe and Groq Whisper are also selectable), uses Gemini to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # set ANTHROPIC_API_KEY and GEMINI_API_KEY
+cp .env.example .env   # set GEMINI_API_KEY
 cd remotion && npm install
 ```
 
 Required system tools: `yt-dlp`, `ffmpeg`, `ffprobe`, `npx`
 
-API keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, optionally `ELEVENLABS_API_KEY`/`GROQ_API_KEY`
-for the alternate transcription backends) can also be set from the in-app settings screen
-(⚙ 設定) instead of `.env` — see `web/config.py`. That's the path packaged/distributed
-installs use (see `packaging/windows/`); `.env` remains the dev-machine convenience.
+API keys (`GEMINI_API_KEY`, optionally `ELEVENLABS_API_KEY`/`GROQ_API_KEY` for the alternate
+transcription backends) can also be set from the in-app settings screen (⚙ 設定) instead of
+`.env` — see `web/config.py`. That's the path packaged/distributed installs use (see
+`packaging/windows/`); `.env` remains the dev-machine convenience.
 
 The Windows installer build can also bake in default `GEMINI_API_KEY`/`ELEVENLABS_API_KEY`
 values so end users need zero setup — `.github/workflows/build-windows-installer.yml` passes
@@ -41,7 +41,7 @@ The project has three layers that communicate through the filesystem and subproc
 
 ### Python backend (`web/`)
 - `web/app.py` — FastAPI server. Manages in-memory jobs (dict keyed by UUID). Each job runs `pipeline.py` in a thread pool executor. The frontend polls `/api/jobs/{jid}/events` via SSE.
-- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `elevenlabs_transcribe.py` / `audio_chunking_code.py` / `gemini_transcribe.py` depending on `transcription_model`), `suggest_clips_from_result` (calls the Anthropic API directly via the `anthropic` SDK), `render_clip` (calls `npx remotion render`).
+- `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `elevenlabs_transcribe.py` / `audio_chunking_code.py` / `gemini_transcribe.py` depending on `transcription_model`), `suggest_clips_from_result` (calls Gemini via `google-genai`, model `gemini_transcribe.DEFAULT_MODEL_ID`, regardless of which transcription backend was used), `render_clip` (calls `npx remotion render`).
 - `web/config.py` — Persists API keys entered via the settings screen to `config.json` under `get_data_dir()` (repo root in dev, `%LOCALAPPDATA%\Kirinuki` on a packaged Windows install), and applies them to `os.environ` on top of `.env`.
 
 ### Remotion renderer (`remotion/`)
@@ -62,7 +62,7 @@ URL → yt-dlp → .mp4 (downloads/)
             ↓
       Gemini (既定) / ElevenLabs Scribe / Groq Whisper → *_full.json (transcriptions/)
             ↓
-      Anthropic API → clips_*.json (transcriptions/)
+      Gemini → clips_*.json (transcriptions/)
             ↓
       npx remotion render → *.mp4 (clips/)
 ```
@@ -85,6 +85,6 @@ Old-format split clips using `_concat_group` / `_concat_index` are automatically
 - Transcriptions are saved to `transcriptions/` (root), not `web/transcriptions/`.
 - The `web/transcriptions/` directory contains legacy files; new files go to project root `transcriptions/`.
 - Remotion renders use `--public-dir` pointing to the video's parent directory so `staticFile(videoSrc)` resolves correctly.
-- `suggest_clips_from_result()` requires `ANTHROPIC_API_KEY` (via `.env` or the settings screen) — no `claude` CLI or login is needed.
+- `suggest_clips_from_result()` requires `GEMINI_API_KEY` (via `.env` or the settings screen), same as the Gemini transcription backend — no `claude` CLI, login, or Anthropic key is needed anywhere in the app.
 - Job state is in-memory only; server restart loses all jobs.
 - On Windows, subprocess calls (yt-dlp/ffmpeg/ffprobe/npx/npm) pass `creationflags=subprocess.CREATE_NO_WINDOW` (see `config.no_window_kwargs()`) so a packaged install never flashes a console window.

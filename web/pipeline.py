@@ -12,8 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-import anthropic
-
 import config as cfg
 
 PROJECT_DIR = Path(__file__).parent.parent
@@ -514,21 +512,25 @@ captionEffect は字幕全体の基本効果です。次のルールで1つ選�
     if extra_prompt:
         prompt += f"\n## 追加指示\n{extra_prompt}\n"
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY が設定されていません。設定画面からAPIキーを入力してください。")
+        raise RuntimeError("GEMINI_API_KEY が設定されていません。設定画面からAPIキーを入力してください。")
 
-    client = anthropic.Anthropic(api_key=api_key, timeout=600)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
+    from google import genai
+    from google.genai import types
+    from gemini_transcribe import DEFAULT_MODEL_ID
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=DEFAULT_MODEL_ID,
+        contents=[prompt],
+        config=types.GenerateContentConfig(max_output_tokens=8192),
     )
 
-    text = message.content[0].text.strip()
+    text = response.text.strip()
     m = re.search(r"\[.*\]", text, re.DOTALL)
     if not m:
-        raise ValueError(f"Could not parse clip suggestions from Claude response:\n{text[:500]}")
+        raise ValueError(f"Could not parse clip suggestions from Gemini response:\n{text[:500]}")
 
     clips = json.loads(m.group())
     return enrich_clip_caption_effects(clips, segments)

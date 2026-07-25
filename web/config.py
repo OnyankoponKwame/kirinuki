@@ -17,7 +17,7 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent.parent
 
-_SETTINGS_KEYS = ("ANTHROPIC_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_API_KEY")
+_SETTINGS_KEYS = ("GROQ_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_API_KEY")
 
 
 def get_data_dir() -> Path:
@@ -90,7 +90,6 @@ def save_settings(updates: dict[str, str]) -> None:
 def settings_status() -> dict[str, bool]:
     """Which keys are currently configured (via .env or config.json). Never leaks values."""
     return {
-        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "groq": bool(os.environ.get("GROQ_API_KEY")),
         "gemini": bool(os.environ.get("GEMINI_API_KEY")),
         "elevenlabs": bool(os.environ.get("ELEVENLABS_API_KEY")),

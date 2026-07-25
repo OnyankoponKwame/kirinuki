@@ -289,7 +289,6 @@ class RenderReq(BaseModel):
 
 
 class SettingsReq(BaseModel):
-    anthropic_api_key: str | None = None
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
     elevenlabs_api_key: str | None = None
@@ -303,7 +302,6 @@ def get_settings():
 @app.put("/api/settings")
 def update_settings(req: SettingsReq):
     cfg.save_settings({
-        "ANTHROPIC_API_KEY": req.anthropic_api_key,
         "GROQ_API_KEY": req.groq_api_key,
         "GEMINI_API_KEY": req.gemini_api_key,
         "ELEVENLABS_API_KEY": req.elevenlabs_api_key,
@@ -319,13 +317,18 @@ async def create_job(req: StartReq):
     missing: list[str] = []
     if not req.chat_only and req.stop_after != "download":
         status = cfg.settings_status()
+        key_labels = {"gemini": "Gemini", "groq": "Groq", "elevenlabs": "ElevenLabs"}
+
+        def require(key: str) -> None:
+            if not status[key] and key_labels[key] not in missing:
+                missing.append(key_labels[key])
+
         if not req.transcription_path:
-            key_labels = {"gemini": "Gemini", "groq": "Groq", "elevenlabs": "ElevenLabs"}
             needed_key = req.transcription_model if req.transcription_model in key_labels else "gemini"
-            if not status[needed_key]:
-                missing.append(key_labels[needed_key])
-        if req.clips is None and not req.clips_path and not status["anthropic"]:
-            missing.append("Anthropic")
+            require(needed_key)
+        # suggest_clips_from_result() always uses Gemini, regardless of transcription_model
+        if req.clips is None and not req.clips_path:
+            require("gemini")
     if missing:
         raise HTTPException(400, f"{'・'.join(missing)} のAPIキーが設定画面で未設定です。")
 

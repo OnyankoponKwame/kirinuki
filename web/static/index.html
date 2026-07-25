@@ -236,12 +236,7 @@ a.btn-dl { background: var(--blue); color: #fff; border-radius: 6px; font-size: 
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw;max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
     <h2 style="font-size:16px">API キー設定</h2>
     <div class="field">
-      <label>Anthropic API キー（必須・切り抜き提案に使用）</label>
-      <input type="password" id="settings-anthropic" placeholder="設定済みの場合は入力不要">
-      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">console.anthropic.com で取得</a>
-    </div>
-    <div class="field">
-      <label>Gemini API キー（必須・文字起こしに使用）</label>
+      <label>Gemini API キー（必須・文字起こし/切り抜き提案に使用）</label>
       <input type="password" id="settings-gemini" placeholder="設定済みの場合は入力不要">
       <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted)">aistudio.google.com で取得</a>
     </div>
@@ -1755,7 +1750,6 @@ async function refreshSettingsBanner() {
     return;
   }
   const missing = [];
-  if (!status.anthropic) missing.push('Anthropic');
   if (!status.gemini) missing.push('Gemini');
   const banner = document.getElementById('settings-banner');
   if (missing.length) {
@@ -1775,12 +1769,10 @@ async function openSettings() {
   const statusText = (label, ok) => `${label}: ${ok ? '設定済み ✓' : '未設定'}`;
   document.getElementById('settings-modal-status').textContent =
     [
-      statusText('Anthropic', status.anthropic),
       statusText('Gemini', status.gemini),
       statusText('ElevenLabs', status.elevenlabs),
       statusText('Groq', status.groq),
     ].join(' / ');
-  document.getElementById('settings-anthropic').value = '';
   document.getElementById('settings-elevenlabs').value = '';
   document.getElementById('settings-groq').value = '';
   document.getElementById('settings-gemini').value = '';
@@ -1792,7 +1784,6 @@ function closeSettings() {
 
 async function saveSettings() {
   const body = {
-    anthropic_api_key: document.getElementById('settings-anthropic').value || null,
     elevenlabs_api_key: document.getElementById('settings-elevenlabs').value || null,
     groq_api_key: document.getElementById('settings-groq').value || null,
     gemini_api_key: document.getElementById('settings-gemini').value || null,
