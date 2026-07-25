@@ -6,3 +6,7 @@
 2026-07-26 04:53:10  server ready, opening browser
 2026-07-26 04:53:10  pre-fetching cookies from chrome before browser opens
 2026-07-26 04:53:10  cookies pre-fetched and cached successfully
+2026-07-26 04:57:01  launcher starting
+2026-07-26 04:57:01  server ready, opening browser
+2026-07-26 04:57:01  pre-fetching cookies from chrome before browser opens
+2026-07-26 04:57:01  failed to pre-fetch cookies (other error): <MagicMock name='run().stderr' id='4353917056'>

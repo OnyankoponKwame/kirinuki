@@ -131,19 +131,48 @@ def main() -> None:
             _log("pre-fetching cookies from chrome before browser opens")
             cookies_path.parent.mkdir(parents=True, exist_ok=True)
             import subprocess
-            subprocess.run(
-                [
-                    "yt-dlp",
-                    "--cookies-from-browser", "chrome",
-                    "--cookies", str(cookies_path),
-                    "--skip-download",
-                    "https://www.youtube.com"
-                ],
-                capture_output=True,
-                text=True,
-                **cfg.no_window_kwargs()
-            )
-            _log("cookies pre-fetched and cached successfully")
+            import ctypes
+
+            while True:
+                res = subprocess.run(
+                    [
+                        "yt-dlp",
+                        "--cookies-from-browser", "chrome",
+                        "--cookies", str(cookies_path),
+                        "--skip-download",
+                        "https://www.youtube.com"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    **cfg.no_window_kwargs()
+                )
+                if res.returncode == 0:
+                    _log("cookies pre-fetched and cached successfully")
+                    break
+
+                # クッキーのロックエラー（ブラウザ起動中）を検知
+                stderr_lower = res.stderr.lower()
+                if "cookie" in stderr_lower and ("could not copy" in stderr_lower or "lock" in stderr_lower or "permission" in stderr_lower):
+                    _log("chrome cookies database locked. showing prompt to user.")
+                    if sys.platform == "win32":
+                        # MB_OKCANCEL = 1
+                        ret = ctypes.windll.user32.MessageBoxW(
+                            None,
+                            "YouTubeの制限回避に必要なクッキーの初期取得を行います。\n"
+                            "Chromeブラウザが起動中のためクッキーを取得できません。\n\n"
+                            "一度Chromeブラウザを完全に閉じた状態で、[OK] を押してください。\n"
+                            "（この設定は最初の1回のみ必要で、次回以降はChromeを開いたままでも動作します）",
+                            "Kirinuki - 初回クッキー設定",
+                            1,
+                        )
+                        if ret == 2:  # IDCANCEL
+                            _log("user canceled cookie pre-fetch prompt")
+                            break
+                    else:
+                        break
+                else:
+                    _log(f"failed to pre-fetch cookies (other error): {res.stderr}")
+                    break
     except Exception as e:
         _log(f"failed to pre-fetch cookies: {e}")
 
