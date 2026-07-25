@@ -348,6 +348,7 @@ class SettingsReq(BaseModel):
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
     elevenlabs_api_key: str | None = None
+    elevenlabs_keyterms: str | None = None
 
 
 @app.get("/api/settings")
@@ -361,6 +362,7 @@ def update_settings(req: SettingsReq):
         "GROQ_API_KEY": req.groq_api_key,
         "GEMINI_API_KEY": req.gemini_api_key,
         "ELEVENLABS_API_KEY": req.elevenlabs_api_key,
+        "ELEVENLABS_KEYTERMS": req.elevenlabs_keyterms,
     })
     return cfg.settings_status()
 

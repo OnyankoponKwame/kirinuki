@@ -493,8 +493,11 @@ def run_transcription(
         raw = transcribe_audio_in_chunks(video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode)
     else:
         from elevenlabs_transcribe import transcribe_with_elevenlabs
-        # TODO: 動作確認用のテスト値。将来的には設定画面などから指定できるようにする
-        keyterms = ["飴白"]
+        keyterms_str = os.environ.get("ELEVENLABS_KEYTERMS")
+        if keyterms_str is None:
+            keyterms_str = "飴白, 飴白なび"
+        keyterms_str = keyterms_str.replace("，", ",").replace("、", ",")
+        keyterms = [k.strip() for k in keyterms_str.split(",") if k.strip()] if keyterms_str else None
         raw = transcribe_with_elevenlabs(
             video_path, language=language, initial_prompt=initial_prompt, audio_mode=audio_mode, keyterms=keyterms
         )

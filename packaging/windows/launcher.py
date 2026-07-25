@@ -27,7 +27,7 @@ import webbrowser
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parent
-WEB_DIR = APP_ROOT / "web"
+WEB_DIR = APP_ROOT / "web" if (APP_ROOT / "web").exists() else APP_ROOT.parent.parent / "web"
 HOST = "127.0.0.1"
 PORT = 8000
 START_TIMEOUT_SEC = 30.0
@@ -74,12 +74,6 @@ def _show_error(message: str) -> None:
 
 def run_server() -> None:
     """Runs on a background thread. Any exception here is caught by main()'s caller."""
-    sys.path.insert(0, str(WEB_DIR))
-    # Bundled ffmpeg/ffprobe/yt-dlp (bin/) and portable Node (node/) — picked up by
-    # config.bootstrap_bin_path() so subprocess calls in pipeline.py/app.py resolve
-    # them without a system-wide PATH entry.
-    os.environ["KIRINUKI_BIN_DIR"] = os.pathsep.join([str(APP_ROOT / "bin"), str(APP_ROOT / "node")])
-
     import uvicorn
     from app import app  # web/app.py's FastAPI instance
 
@@ -89,6 +83,13 @@ def run_server() -> None:
 def main() -> None:
     _redirect_streams()
     _log("launcher starting")
+
+    # メインスレッドでもWebディレクトリのインポートやyt-dlpのパス解決を行えるようにする
+    sys.path.insert(0, str(WEB_DIR))
+    os.environ["KIRINUKI_BIN_DIR"] = os.pathsep.join([str(APP_ROOT / "bin"), str(APP_ROOT / "node")])
+    import config as cfg
+    cfg.bootstrap_bin_path()
+
     errors: list[BaseException] = []
 
     def target() -> None:
@@ -121,6 +122,31 @@ def main() -> None:
         return
 
     _log("server ready, opening browser")
+
+    # ブラウザが起動される前に、yt-dlpを使ってクッキー情報をあらかじめ取得し、cookies.txtにキャッシュしておく
+    # これにより、ブラウザ起動後のクッキーデータベースのロック競合を回避します
+    try:
+        cookies_path = cfg.get_data_dir() / "cookies.txt"
+        if not cookies_path.exists():
+            _log("pre-fetching cookies from chrome before browser opens")
+            cookies_path.parent.mkdir(parents=True, exist_ok=True)
+            import subprocess
+            subprocess.run(
+                [
+                    "yt-dlp",
+                    "--cookies-from-browser", "chrome",
+                    "--cookies", str(cookies_path),
+                    "--skip-download",
+                    "https://www.youtube.com"
+                ],
+                capture_output=True,
+                text=True,
+                **cfg.no_window_kwargs()
+            )
+            _log("cookies pre-fetched and cached successfully")
+    except Exception as e:
+        _log(f"failed to pre-fetch cookies: {e}")
+
     webbrowser.open(f"http://{HOST}:{PORT}")
     thread.join()
 
