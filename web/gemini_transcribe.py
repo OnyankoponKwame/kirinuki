@@ -1,4 +1,4 @@
-"""Gemini 2.5 Flash transcription — extracts audio via preprocess_audio, uploads whole file, no chunking."""
+"""Gemini transcription — extracts audio via preprocess_audio, uploads whole file, no chunking."""
 import json
 import os
 import re
@@ -10,6 +10,8 @@ if str(_AUDIO_DIR) not in sys.path:
     sys.path.insert(0, str(_AUDIO_DIR))
 
 from audio_chunking_code import preprocess_audio  # noqa: E402
+
+DEFAULT_MODEL_ID = "gemini-3.5-flash-lite"
 
 _MIME_BY_SUFFIX = {
     ".mp3": "audio/mpeg",
@@ -102,9 +104,9 @@ def transcribe_with_gemini(
         if initial_prompt:
             prompt += f"\n\n追加コンテキスト: {initial_prompt}"
 
-        print("▶ Gemini 2.5 Flash: 文字起こし中...")
+        print(f"▶ Gemini ({DEFAULT_MODEL_ID}): 文字起こし中...")
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=DEFAULT_MODEL_ID,
             contents=[prompt, uploaded_file],
             config=types.GenerateContentConfig(
                 max_output_tokens=65536,

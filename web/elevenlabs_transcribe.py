@@ -1,14 +1,26 @@
 """ElevenLabs Speech-to-Text transcription — no file size/duration limit (up to 5GB),
-so unlike Groq Whisper this sends the whole file in a single request, no chunking."""
+so unlike Groq Whisper this sends the whole file in a single request, no chunking.
+
+Talks to the REST endpoint directly with `requests` rather than the official `elevenlabs`
+SDK: that package bundles every ElevenLabs product (dubbing, voices, studio, workspace,
+conversational AI, ...) as deeply nested subpackages that `client.py` imports eagerly,
+and some of those paths exceed Windows' MAX_PATH once staged into the packaged installer
+— Inno Setup's compiler fails with "The system cannot find the path specified." We only
+ever call the one speech-to-text endpoint, so a plain HTTP POST avoids all of it.
+"""
 import os
 import sys
 from pathlib import Path
+
+import requests
 
 _AUDIO_DIR = Path(__file__).parent.parent / "audio-chunking"
 if str(_AUDIO_DIR) not in sys.path:
     sys.path.insert(0, str(_AUDIO_DIR))
 
 from audio_chunking_code import preprocess_audio  # noqa: E402
+
+_API_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 
 _MIME_BY_SUFFIX = {
     ".mp3": "audio/mpeg",
@@ -26,34 +38,38 @@ _SILENCE_GAP_SEC = 1.2
 _SENTENCE_END_CHARS = "。！？.!?"
 
 
-def _words_to_segments(words: list) -> list[dict]:
+def _words_to_segments(words: list[dict]) -> list[dict]:
     segments: list[dict] = []
-    cur: list = []
+    cur: list[dict] = []
     cur_start: float | None = None
     prev_end: float | None = None
 
     def flush() -> None:
         nonlocal cur, cur_start
         if cur:
-            text = "".join(w.text for w in cur).strip()
+            text = "".join(w.get("text", "") for w in cur).strip()
             if text:
                 segments.append({
                     "start": cur_start if cur_start is not None else 0.0,
-                    "end": cur[-1].end if cur[-1].end is not None else cur_start,
+                    "end": cur[-1].get("end") if cur[-1].get("end") is not None else cur_start,
                     "text": text,
                 })
         cur = []
         cur_start = None
 
     for w in words:
-        if w.type == "spacing" and not cur:
+        start = w.get("start")
+        end = w.get("end")
+
+        if w.get("type") == "spacing" and not cur:
             continue  # skip leading whitespace at the start of a segment
 
-        if cur and w.start is not None and prev_end is not None:
-            gap = w.start - prev_end
-            text_len = sum(len(x.text) for x in cur)
+        if cur and start is not None and prev_end is not None:
+            gap = start - prev_end
+            text_len = sum(len(x.get("text", "")) for x in cur)
             duration = prev_end - cur_start if cur_start is not None else 0.0
-            last_char = cur[-1].text.strip()[-1:] if cur[-1].text.strip() else ""
+            last_text = cur[-1].get("text", "").strip()
+            last_char = last_text[-1:] if last_text else ""
             if (
                 gap >= _SILENCE_GAP_SEC
                 or text_len >= _MAX_SEGMENT_CHARS
@@ -62,11 +78,11 @@ def _words_to_segments(words: list) -> list[dict]:
             ):
                 flush()
 
-        if cur_start is None and w.start is not None:
-            cur_start = w.start
+        if cur_start is None and start is not None:
+            cur_start = start
         cur.append(w)
-        if w.end is not None:
-            prev_end = w.end
+        if end is not None:
+            prev_end = end
 
     flush()
     return segments
@@ -78,16 +94,10 @@ def transcribe_with_elevenlabs(
     initial_prompt: str | None = None,
     audio_mode: str = "mp3",
 ) -> dict:
-    try:
-        from elevenlabs import ElevenLabs
-    except ImportError:
-        raise RuntimeError("elevenlabs パッケージが必要です: pip install elevenlabs")
-
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
         raise ValueError("ELEVENLABS_API_KEY environment variable not set")
 
-    client = ElevenLabs(api_key=api_key, timeout=1800)
     audio_path: Path | None = None
     is_temp = False
 
@@ -101,18 +111,26 @@ def transcribe_with_elevenlabs(
         print(f"▶ ElevenLabs: ファイルをアップロード中 ({size_mb:.1f} MB)...")
 
         with open(audio_path, "rb") as f:
-            response = client.speech_to_text.convert(
-                model_id="scribe_v2",
-                file=(audio_path.name, f, mime_type),
-                language_code=language,
-                timestamps_granularity="word",
-                tag_audio_events=False,
-                diarize=False,
+            resp = requests.post(
+                _API_URL,
+                headers={"xi-api-key": api_key},
+                data={
+                    "model_id": "scribe_v2",
+                    "language_code": language,
+                    "timestamps_granularity": "word",
+                    "tag_audio_events": "false",
+                    "diarize": "false",
+                },
+                files={"file": (audio_path.name, f, mime_type)},
+                timeout=1800,
             )
-        print("✓ ElevenLabs: 文字起こし完了")
+        if resp.status_code != 200:
+            raise RuntimeError(f"ElevenLabs API error {resp.status_code}: {resp.text[:500]}")
 
-        segments = _words_to_segments(response.words or [])
-        return {"text": response.text or "", "segments": segments}
+        print("✓ ElevenLabs: 文字起こし完了")
+        payload = resp.json()
+        segments = _words_to_segments(payload.get("words") or [])
+        return {"text": payload.get("text") or "", "segments": segments}
     finally:
         if is_temp and audio_path:
             audio_path.unlink(missing_ok=True)

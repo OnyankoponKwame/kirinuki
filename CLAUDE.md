@@ -4,22 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (ElevenLabs Scribe by default; Groq Whisper and Gemini 2.5 Flash are also selectable), uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
+Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (Gemini by default; ElevenLabs Scribe and Groq Whisper are also selectable), uses the Anthropic API (Claude) to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # set ANTHROPIC_API_KEY and ELEVENLABS_API_KEY
+cp .env.example .env   # set ANTHROPIC_API_KEY and GEMINI_API_KEY
 cd remotion && npm install
 ```
 
 Required system tools: `yt-dlp`, `ffmpeg`, `ffprobe`, `npx`
 
-API keys (`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, optionally `GROQ_API_KEY`/`GEMINI_API_KEY`
+API keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, optionally `ELEVENLABS_API_KEY`/`GROQ_API_KEY`
 for the alternate transcription backends) can also be set from the in-app settings screen
 (⚙ 設定) instead of `.env` — see `web/config.py`. That's the path packaged/distributed
 installs use (see `packaging/windows/`); `.env` remains the dev-machine convenience.
+
+The Windows installer build can also bake in default `GEMINI_API_KEY`/`ELEVENLABS_API_KEY`
+values so end users need zero setup — `.github/workflows/build-windows-installer.yml` passes
+GitHub Actions secrets of the same names into `build.ps1`'s step 5, which writes them to
+`web/default_config.json` in the staged app (never committed — see `.gitignore`). `config.py`
+loads this as the lowest-priority source; the settings screen still overrides it per-install.
 
 ## Running the app
 
@@ -45,16 +51,16 @@ The project has three layers that communicate through the filesystem and subproc
 - `remotion/src/studioCompositions.tsx` — **Auto-generated** by `app.py`'s `_generate_studio_compositions()` when "Studio で確認" is clicked. Do not edit manually.
 
 ### Transcription (`audio-chunking/`, `web/`)
-- `web/elevenlabs_transcribe.py` — **Default** backend. ElevenLabs Speech-to-Text has no file size/duration limit, so the whole preprocessed audio file is sent in a single request (no chunking). Its response only has word-level timestamps, not segments, so `_words_to_segments()` regroups words into Whisper/Groq-like sentence segments (splits on silence gaps, sentence-ending punctuation, or length) for the rest of the pipeline.
+- `web/gemini_transcribe.py` — **Default** backend, model `DEFAULT_MODEL_ID` (currently `gemini-3.5-flash-lite`). Whole preprocessed audio file uploaded in one request, no chunking.
+- `web/elevenlabs_transcribe.py` — ElevenLabs Speech-to-Text has no file size/duration limit either, so also a single whole-file request. Talks to the REST endpoint directly with `requests` rather than the official `elevenlabs` SDK — that package's `client.py` eagerly imports every product line (dubbing, voices, studio, conversational AI, ...), and some of those paths are deep enough to exceed Windows' MAX_PATH once staged into the installer. Its response only has word-level timestamps, not segments, so `_words_to_segments()` regroups words into Whisper/Groq-like sentence segments (splits on silence gaps, sentence-ending punctuation, or length) for the rest of the pipeline.
 - `audio_chunking_code.py` — Groq Whisper backend. Converts video to 16kHz mono FLAC via ffmpeg, then sends to Groq Whisper in chunks (handles rate limits, needed since Groq has tighter per-request size limits).
-- `web/gemini_transcribe.py` — Gemini 2.5 Flash backend. Also a single whole-file upload, no chunking.
 
 ## Key data flow
 
 ```
 URL → yt-dlp → .mp4 (downloads/)
             ↓
-      ElevenLabs Scribe (既定) / Groq Whisper / Gemini → *_full.json (transcriptions/)
+      Gemini (既定) / ElevenLabs Scribe / Groq Whisper → *_full.json (transcriptions/)
             ↓
       Anthropic API → clips_*.json (transcriptions/)
             ↓

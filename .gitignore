@@ -7,6 +7,10 @@ transcriptions/
 clips/
 web/transcriptions/
 
+# ── Windows パッケージングのビルド出力（APIキーを含み得る default_config.json も含む） ──
+dist/
+web/default_config.json
+
 # ── Remotion 生成物 ───────────────────────────────────────────────────────────
 remotion/node_modules/
 remotion/out/

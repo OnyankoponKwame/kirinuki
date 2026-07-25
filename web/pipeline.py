@@ -188,7 +188,7 @@ def run_transcription(
     language: str,
     initial_prompt: str | None = None,
     audio_mode: str = "mp3",
-    transcription_model: str = "elevenlabs",
+    transcription_model: str = "gemini",
 ) -> dict:
     if transcription_model == "gemini":
         from gemini_transcribe import transcribe_with_gemini

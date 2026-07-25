@@ -263,7 +263,7 @@ class StartReq(BaseModel):
     transcription_path: str | None = None  # skip transcription
     transcription_prompt: str | None = None  # initial prompt for Whisper transcription
     audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
-    transcription_model: str = "elevenlabs"  # transcription backend: "elevenlabs" | "groq" | "gemini"
+    transcription_model: str = "gemini"  # transcription backend: "gemini" | "elevenlabs" | "groq"
     trim_start_min: float | None = None  # clip video before transcription (minutes)
     trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
@@ -321,7 +321,7 @@ async def create_job(req: StartReq):
         status = cfg.settings_status()
         if not req.transcription_path:
             key_labels = {"gemini": "Gemini", "groq": "Groq", "elevenlabs": "ElevenLabs"}
-            needed_key = req.transcription_model if req.transcription_model in key_labels else "elevenlabs"
+            needed_key = req.transcription_model if req.transcription_model in key_labels else "gemini"
             if not status[needed_key]:
                 missing.append(key_labels[needed_key])
         if req.clips is None and not req.clips_path and not status["anthropic"]:

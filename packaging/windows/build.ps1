@@ -152,5 +152,20 @@ Copy-Item (Join-Path $ffmpegBinDir "ffprobe.exe") $binDir -Force
 $ytDlpExe = Join-Path $binDir "yt-dlp.exe"
 Download-File $YtDlpExeUrl $ytDlpExe
 
+# ── 5. Bundled default API keys ───────────────────────────────────────────────
+# Optional: bake GEMINI_API_KEY / ELEVENLABS_API_KEY in as defaults so end users don't
+# need to configure anything (see .github/workflows/build-windows-installer.yml, which
+# sources these from GitHub Actions secrets — never from a checked-in file). Read by
+# config.py's load_settings() as the lowest-priority source; the settings screen still
+# overrides it. Silently produces no file (i.e. no defaults) if the env vars are unset,
+# e.g. for a local build.ps1 run without them exported.
+$bundledDefaults = @{}
+if ($env:GEMINI_API_KEY)     { $bundledDefaults["GEMINI_API_KEY"] = $env:GEMINI_API_KEY }
+if ($env:ELEVENLABS_API_KEY) { $bundledDefaults["ELEVENLABS_API_KEY"] = $env:ELEVENLABS_API_KEY }
+if ($bundledDefaults.Count -gt 0) {
+    Write-Host "== Bundling default API keys ($($bundledDefaults.Count) key(s)) =="
+    $bundledDefaults | ConvertTo-Json | Set-Content (Join-Path $AppDir "web\default_config.json") -Encoding utf8
+}
+
 Write-Host "`nStaged app folder: $AppDir"
 Write-Host "Next: compile packaging\windows\kirinuki.iss with Inno Setup to produce dist\KirinukiSetup.exe"

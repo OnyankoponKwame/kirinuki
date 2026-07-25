@@ -2,8 +2,11 @@
 
 Packaged/distributed installs have no terminal to export env vars in, so API keys
 are entered through the in-app settings screen and persisted to config.json under
-the user's data dir. .env (dev convenience) loads first; config.json fills in and
-overrides on top of it.
+the user's data dir. Priority, lowest to highest:
+  1. bundled defaults (default_config.json, shipped next to this file — only present
+     in a packaged build; baked in at build time from CI secrets, never committed)
+  2. .env (dev convenience)
+  3. config.json (settings screen) — always wins
 """
 
 import json
@@ -31,8 +34,13 @@ def _config_path() -> Path:
     return get_data_dir() / "config.json"
 
 
-def _read_config() -> dict[str, str]:
-    path = _config_path()
+def _bundled_defaults_path() -> Path:
+    # Written by packaging/windows/build.ps1 into the staged app's web/ dir; absent
+    # in a source checkout / dev environment.
+    return Path(__file__).parent / "default_config.json"
+
+
+def _read_json(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     try:
@@ -42,9 +50,20 @@ def _read_config() -> dict[str, str]:
         return {}
 
 
+def _read_config() -> dict[str, str]:
+    return _read_json(_config_path())
+
+
 def load_settings() -> dict[str, str]:
-    """Load persisted API keys from config.json and apply them to os.environ,
-    overriding anything already loaded from .env. Returns the persisted dict."""
+    """Load bundled defaults (packaged builds only, lowest priority) and persisted
+    config.json (settings screen, always wins) and apply them to os.environ on top
+    of .env. Returns the persisted (settings screen) dict."""
+    bundled = _read_json(_bundled_defaults_path())
+    for key in _SETTINGS_KEYS:
+        value = bundled.get(key)
+        if value and not os.environ.get(key):
+            os.environ[key] = value
+
     settings = _read_config()
     for key in _SETTINGS_KEYS:
         value = settings.get(key)
