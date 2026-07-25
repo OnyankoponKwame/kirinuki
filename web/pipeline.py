@@ -751,52 +751,13 @@ def suggest_clips_from_result(
         if chat_lines:
             chat_section = "\n## ライブチャット（タイムスタンプは動画開始からの秒数）\n" + "\n".join(chat_lines)
 
-    prompt = f"""以下はYouTube動画の文字起こしです。
+    from web.prompts import get_suggest_clips_prompt
 
-## 文字起こし
-{transcript_text}
-{chat_section}
-
-この動画から切り抜き動画として面白い・バズりそうな部分を5〜10個提案してください。
-以下のJSON配列のみを出力してください（前後に説明文不要）:
-
-[
-  {{
-    "title": "クリップのタイトル",
-    "start_sec": 120.5,
-    "end_sec": 185.2,
-    "cutIntervals": [{{"startSec": 135.0, "endSec": 142.0}}],
-    "vertical": true,
-    "verticalMode": "split",
-    "captionEffect": "hype",
-    "reason": "なぜこの部分が切り抜きに適しているか"
-  }}
-]
-
-条件: 各クリップ30秒〜5分、話の区切りが自然な部分、チャットが盛り上がっている部分を優先。
-cutIntervals は省略可能です。指定した区間を動画から除去します。無音・話が脱線・間延びした部分がある場合のみ指定してください。
-
-captionEffect は字幕全体の基本効果です。次のルールで1つ選んでください:
-- anger: 怒り、強い抗議、ふざけるな・許せない系の場面
-- scary: 怖い、不穏、ホラー、背後や気配でゾッとする場面
-- panic: 恐怖・悲鳴・逃げたい場面
-- shock: 予想外の大オチ、強い驚き、！？が似合う場面
-- laugh: 笑い、草、ツッコミ、コメント欄が笑っている場面
-- gaming: ゲームの勝敗、ボス、コンボ、キル、クリア場面
-- hype: 盛り上がり、成功、神プレイ、テンションが上がる場面
-- cute: かわいい、尊い、癒やし場面
-- question: 疑問、困惑、何が起きたかわからない場面
-- whisper: 小声、内緒、落ち着いた含みのある場面
-- news: 告知、発表、速報っぽい場面
-- glitch: バグ、ラグ、フリーズ、違和感のある場面
-- punch: 断言、結論、パンチライン、強い一言
-- pill: 限定、無料、最強、おすすめなど短い訴求語
-- neon: 映え、エモい、キラキラした場面
-- pop: 軽いリアクション、汎用的に楽しい場面
-- sad: 悲しみ、喪失感、別れ、やるせない・つらい場面
-"""
-    if extra_prompt:
-        prompt += f"\n## 追加指示\n{extra_prompt}\n"
+    prompt = get_suggest_clips_prompt(
+        transcript_text=transcript_text,
+        chat_section=chat_section,
+        extra_prompt=extra_prompt,
+    )
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -804,20 +765,35 @@ captionEffect は字幕全体の基本効果です。次のルールで1つ選�
 
     from google import genai
     from google.genai import types
+    from web.schemas import ClipSuggestion
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model=GEMINI_MODEL_ID,
         contents=[prompt],
-        config=types.GenerateContentConfig(max_output_tokens=8192),
+        config=types.GenerateContentConfig(
+            max_output_tokens=8192,
+            response_mime_type="application/json",
+            response_schema=list[ClipSuggestion],
+        ),
     )
 
     text = response.text.strip()
-    m = re.search(r"\[.*\]", text, re.DOTALL)
-    if not m:
-        raise ValueError(f"Could not parse clip suggestions from Gemini response:\n{text[:500]}")
+    try:
+        clips = json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if not m:
+            raise ValueError(f"Could not parse clip suggestions from Gemini response:\n{text[:500]}")
+        clips = json.loads(m.group())
 
-    clips = json.loads(m.group())
+    # デフォルト設定のマージ（縦型・画面分割表示をデフォルトとする）
+    for clip in clips:
+        if "vertical" not in clip:
+            clip["vertical"] = True
+        if "verticalMode" not in clip:
+            clip["verticalMode"] = "split"
+
     return enrich_clip_caption_effects(clips, segments)
 
 
