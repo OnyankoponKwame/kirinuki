@@ -33,9 +33,10 @@ HOST = "127.0.0.1"
 PORT = 8000
 START_TIMEOUT_SEC = 30.0
 
-LOG_DIR = Path(os.getenv("LOCALAPPDATA") or str(APP_ROOT)) / "Kirinuki"
+LOG_DIR = Path(os.getenv("LOCALAPPDATA") or str(APP_ROOT)) / "Kirinuki" / "logs"
 LOG_PATH = LOG_DIR / "launcher.log"
 SERVER_LOG_PATH = LOG_DIR / "server.log"
+MAX_LOG_BYTES = 5 * 1024 * 1024  # a runaway retry loop must not be able to fill the disk
 
 
 def _redirect_streams() -> None:
@@ -53,6 +54,8 @@ def _redirect_streams() -> None:
 def _log(message: str) -> None:
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+        if LOG_PATH.exists() and LOG_PATH.stat().st_size > MAX_LOG_BYTES:
+            LOG_PATH.unlink()
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
     except OSError:
@@ -78,7 +81,6 @@ _COOKIE_EXTENSION_CHROME_URL = (
     "https://chromewebstore.google.com/detail/get-cookiestxt-locally/"
     "cclelndahbckbenkjhflpdbgdldlbecc?hl=ja"
 )
-_COOKIE_EXTENSION_FIREFOX_URL = "https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/"
 
 
 def _cookie_guide_text(data_dir: Path) -> str:
@@ -87,8 +89,7 @@ def _cookie_guide_text(data_dir: Path) -> str:
         "ログインが必要な動画（年齢制限・メンバー限定など）をダウンロードするには、\n"
         "手動で書き出したCookieが必要です。\n\n"
         "1. ブラウザに「Get cookies.txt LOCALLY」拡張機能を追加します。\n"
-        f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n"
-        f"   Firefox: {_COOKIE_EXTENSION_FIREFOX_URL}\n\n"
+        f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n\n"
         "2. 拡張機能の管理画面で「シークレットモードでの実行を許可する」を有効にします。\n\n"
         "3. シークレット（プライベート）ウィンドウを開き、YouTubeにログインします。\n\n"
         "4. 同じタブで https://www.youtube.com/robots.txt を開きます。\n\n"
@@ -97,9 +98,7 @@ def _cookie_guide_text(data_dir: Path) -> str:
         "   ファイル名は末尾が「cookies.txt」であれば自動で認識されます\n"
         "   （例: 127.0.0.1_cookies.txt）。\n\n"
         f"   {data_dir}\n\n"
-        "6. シークレットウィンドウを閉じてください。\n\n"
-        "※ Cookieを使いすぎるとアカウントがBANされるリスクがあります。\n"
-        "　 不要なときは使わない、メインのアカウントは使わないことをおすすめします。"
+        "6. シークレットウィンドウを閉じてください。"
     )
 
 
@@ -124,47 +123,6 @@ def run_server() -> None:
 
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
-
-def main() -> None:
-    _redirect_streams()
-    _log("launcher starting")
-
-    # メインスレッドでもWebディレクトリのインポートやyt-dlpのパス解決を行えるようにする
-    sys.path.insert(0, str(WEB_DIR))
-    os.environ["KIRINUKI_BIN_DIR"] = os.pathsep.join([str(APP_ROOT / "bin"), str(APP_ROOT / "node")])
-    import config as cfg
-    cfg.bootstrap_bin_path()
-
-    errors: list[BaseException] = []
-
-    def target() -> None:
-        try:
-            run_server()
-        except BaseException as exc:  # must survive to be shown — pythonw has no console
-            errors.append(exc)
-
-    thread = threading.Thread(target=target, daemon=True)
-    thread.start()
-
-    deadline = time.time() + START_TIMEOUT_SEC
-    ready = False
-    while time.time() < deadline and not errors:
-        try:
-            with socket.create_connection((HOST, PORT), timeout=1):
-                ready = True
-                break
-        except OSError:
-            if not thread.is_alive():
-                break  # thread exited without an exception AND without opening the port
-            time.sleep(0.3)
-
-    if not ready:
-        if errors:
-            tb = "".join(traceback.format_exception(type(errors[0]), errors[0], errors[0].__traceback__))
-            _show_error("サーバーの起動中にエラーが発生しました:\n\n" + tb)
-        else:
-            _show_error(f"サーバーが{START_TIMEOUT_SEC:.0f}秒以内に起動しませんでした。")
-        return
 
 def _open_folder(path: Path) -> None:
     """指定されたフォルダを作成し、OSの標準ファイルマネージャーで開く"""
@@ -223,9 +181,6 @@ def _try_show_pystray_manager(data_dir: Path) -> bool:
         def on_open_browser(icon, item):
             webbrowser.open(f"http://{HOST}:{PORT}")
 
-        def on_open_install_dir(icon, item):
-            _open_folder(APP_ROOT)
-
         def on_open_data_dir(icon, item):
             _open_folder(data_dir)
 
@@ -239,7 +194,6 @@ def _try_show_pystray_manager(data_dir: Path) -> bool:
             pystray.MenuItem(f"🟢 Kirinuki サーバー実行中 (http://{HOST}:{PORT})", lambda i, item: None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("🌐 Web画面（ブラウザ）を開く", on_open_browser, default=True),
-            pystray.MenuItem("📁 インストールフォルダを開く", on_open_install_dir),
             pystray.MenuItem("📂 データフォルダを開く (cookies.txt 保存先)", on_open_data_dir),
             pystray.MenuItem("🍪 Cookieの手動保存手順を見る", on_show_cookie_guide),
             pystray.Menu.SEPARATOR,

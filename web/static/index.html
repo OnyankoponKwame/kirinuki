@@ -541,7 +541,6 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
   <div><h1>Kirinuki</h1><div class="sub">YouTube 切り抜き自動生成</div></div>
   <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
     <button class="btn-secondary" title="データ保存先フォルダを開く (cookies.txt など)" onclick="openSystemFolder('data')" style="font-size:12px;padding:5px 10px">📂 データフォルダ</button>
-    <button class="btn-secondary" title="アプリ本体があるインストールフォルダを開く" onclick="openSystemFolder('install')" style="font-size:12px;padding:5px 10px">📁 本体フォルダ</button>
     <button class="btn-secondary" title="Cookieの手動保存手順テキストを開く" onclick="openCookieGuide()" style="font-size:12px;padding:5px 10px">🍪 Cookie手順</button>
     <button class="btn-secondary" id="theme-manager-btn" onclick="openThemeManager()" style="font-size:12px;padding:5px 10px">🎨 テーマ</button>
     <button class="btn-secondary" id="settings-btn" onclick="openSettings()" style="font-size:12px;padding:5px 10px">⚙ 設定</button>
@@ -1074,7 +1073,13 @@ function showLog(n) {
 
 function showError(n, msg) {
   const el = document.getElementById('ph' + n + '-error');
-  el.textContent = msg;
+  let content = escHtml(msg || '不明なエラーが発生しました');
+
+  if (msg && (msg.includes('Cookie') || msg.includes('bot') || msg.includes('Sign in') || msg.includes('cookies.txt') || msg.includes('制限'))) {
+    content += `<div style="margin-top:10px"><button class="btn-secondary" onclick="openCookieGuide()" style="font-size:12px;padding:6px 12px;border-color:rgba(255,255,255,0.25)">🍪 Cookieの手動保存手順を開く</button></div>`;
+  }
+
+  el.innerHTML = content;
   el.hidden = false;
 }
 

@@ -4,6 +4,7 @@
 import atexit
 import asyncio
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -39,6 +40,7 @@ STUDIO_SRC_DIR = REMOTION_DIR / "studio-src"
 STUDIO_PORT = 3009
 CLIPS_DIR = DATA_DIR / "remotion" / "out"
 EXPORTS_DIR = DATA_DIR / "exports"
+LOGS_DIR = cfg.get_log_dir()
 
 
 def migrate_legacy_transcriptions() -> None:
@@ -1049,6 +1051,18 @@ export const StudioCompositions: React.FC = () => null;
 
 _STUB_STUDIO_DATA = '{\n  "videoSrc": "",\n  "segments": [],\n  "clips": []\n}\n'
 
+# Remotion composition ids may only contain a-z, A-Z, 0-9, CJK ideographs (一-鿿) and
+# "-" (see remotion/node_modules/remotion/dist/esm/index.mjs validateCompositionId) — notably
+# NOT hiragana/katakana or punctuation, both of which dominate real clip titles. So a title like
+# 「まさかの結末がヤバすぎるｗ」 keeps only 結末 as an id fragment; still far more useful in the
+# Studio sidebar than a bare index when the title has kanji, and harmless (falls back to just
+# the index) when it doesn't.
+_COMPOSITION_ID_INVALID = re.compile(r"[^a-zA-Z0-9一-鿿]+")
+
+
+def _composition_id_slug(title: str, max_len: int = 20) -> str:
+    return _COMPOSITION_ID_INVALID.sub("-", title).strip("-")[:max_len].strip("-")
+
 
 def _sync_studio_src() -> list[str]:
     """remotion/src を使い捨ての remotion/studio-src/ にミラーし、上書きした分を返す。
@@ -1178,9 +1192,11 @@ def _generate_studio_compositions(
             line if idx == 0 else "      " + line
             for idx, line in enumerate(props_json.splitlines())
         )
+        title_slug = _composition_id_slug(clip.get("title", ""))
+        comp_id = f"clip-{i:02d}-{title_slug}" if title_slug else f"clip-{i:02d}"
         lines += [
             f'    <Composition',
-            f'      id="clip-{i:02d}"',
+            f'      id="{comp_id}"',
             f"      component={{ClipComposition}}",
             f"      schema={{clipSchema}}",
             f"      defaultProps={{{props_json_indented}}}",
@@ -1276,7 +1292,8 @@ async def open_studio(req: StudioReq):
                     break
                 await asyncio.sleep(0.3)
 
-        studio_log = DATA_DIR / "studio.log"
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        studio_log = LOGS_DIR / "studio.log"
         # 新しいセッション/プロセスグループで起動 — npx シムだけでなくその配下の
         # node プロセスもまとめて確実に殺せるようにする（_terminate_studio_proc 参照）。
         # Windows は creationflags がビットフラグなので no_window_kwargs() の値と OR で合成する

@@ -9,6 +9,7 @@ exports/
 web/transcriptions/
 studio.log
 launcher.log
+logs/
 
 # ── Windows パッケージングのビルド出力（APIキーを含み得る default_config.json も含む） ──
 dist/
@@ -18,6 +19,7 @@ web/default_config.json
 config.json
 custom_themes.json
 themes_store.json
+themes/
 
 # ── Remotion 生成物 ───────────────────────────────────────────────────────────
 remotion/node_modules/

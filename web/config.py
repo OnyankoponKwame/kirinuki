@@ -30,6 +30,13 @@ def get_data_dir() -> Path:
     return PROJECT_DIR
 
 
+def get_log_dir() -> Path:
+    """Subfolder for diagnostic log files (server/launcher/studio), kept apart
+    from config.json, cookies, and the theme store so the data dir doesn't
+    stay a flat pile of unrelated file types."""
+    return get_data_dir() / "logs"
+
+
 def find_cookies_file(data_dir: Path | None = None) -> Path | None:
     """Locate a cookies.txt-like file in the data dir.
 
@@ -75,7 +82,6 @@ _COOKIE_EXTENSION_CHROME_URL = (
     "https://chromewebstore.google.com/detail/get-cookiestxt-locally/"
     "cclelndahbckbenkjhflpdbgdldlbecc?hl=ja"
 )
-_COOKIE_EXTENSION_FIREFOX_URL = "https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/"
 
 
 def get_cookie_guide_path(data_dir: Path | None = None) -> Path:
@@ -98,8 +104,7 @@ def ensure_cookie_guide_file(data_dir: Path | None = None) -> Path:
             "■ 手順\n"
             "----------------------------------------------------------------------\n\n"
             "1. ブラウザに「Get cookies.txt LOCALLY」拡張機能を追加します。\n"
-            f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n"
-            f"   Firefox: {_COOKIE_EXTENSION_FIREFOX_URL}\n\n"
+            f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n\n"
             "2. 拡張機能の管理画面で「シークレットモードでの実行を許可する」を有効にします。\n\n"
             "3. シークレット（プライベート）ウィンドウを開き、YouTubeにログインします。\n\n"
             "4. 同じタブで https://www.youtube.com/robots.txt を開きます。\n\n"
@@ -108,13 +113,7 @@ def ensure_cookie_guide_file(data_dir: Path | None = None) -> Path:
             "   ファイル名は末尾が「cookies.txt」であれば自動的に認識されます\n"
             "   （例: 127.0.0.1_cookies.txt や youtube.com_cookies.txt）。\n\n"
             f"   保存先: {path.parent}\n\n"
-            "6. 保存完了後、シークレットウィンドウを閉じてください。\n\n"
-            "----------------------------------------------------------------------\n"
-            "※ 注意事項\n"
-            "----------------------------------------------------------------------\n"
-            "・Cookie を使いすぎるとアカウントが制限されるリスクがあります。\n"
-            "・不要なときはファイルを削除または移動し、メインアカウントではなく\n"
-            "  サブアカウント等の利用をおすすめします。\n"
+            "6. 保存完了後、シークレットウィンドウを閉じてください。\n"
             "======================================================================\n"
         )
         with open(path, "w", encoding="utf-8") as f:

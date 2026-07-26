@@ -2,7 +2,9 @@
 
 Every theme (the presets the app ships with, and anything created or edited via
 the web UI's theme editor) lives as one record in a single central store,
-`themes_store.json` under the data dir (see config.get_data_dir()). There is no
+`themes/themes_store.json` under the data dir (see config.get_data_dir()) — kept
+in its own subfolder rather than flat in the data dir root, alongside the same
+pattern used for downloads/, transcriptions/, etc. (see web/app.py). There is no
 separate "shipped defaults" copy to fall back to — editing a theme overwrites
 its record in place, permanently. Only "custom"-created themes can be deleted;
 the presets the app ships with (marked "builtin" in the store) are protected
@@ -41,6 +43,12 @@ THEME_FIELDS = (
 
 
 def _store_path() -> Path:
+    return cfg.get_data_dir() / "themes" / "themes_store.json"
+
+
+def _legacy_store_path() -> Path:
+    # Pre-reorg location of the central store itself (same format as
+    # _store_path(), just flat in the data dir root) — see _load_store().
     return cfg.get_data_dir() / "themes_store.json"
 
 
@@ -58,6 +66,32 @@ def _save_store(data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _migrate_from_flat_location() -> dict | None:
+    """One-time migration for installs that already have a central store from
+    before it moved into its own themes/ subfolder — same format, just at
+    _legacy_store_path() instead of _store_path(). Copies it into the new
+    location as-is (already-resolved theme records, including any custom
+    ones) and removes the old copy so it doesn't linger as stale duplicate
+    data. Returns None (falling through to _migrate_from_legacy()) if there's
+    nothing there, e.g. a fresh install."""
+    legacy_path = _legacy_store_path()
+    if not legacy_path.exists():
+        return None
+    try:
+        with open(legacy_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    data.setdefault("defaultThemeKey", None)
+    data.setdefault("themes", {})
+    _save_store(data)
+    try:
+        legacy_path.unlink()
+    except OSError:
+        pass
+    return data
 
 
 def _migrate_from_legacy() -> dict:
@@ -102,6 +136,9 @@ def _migrate_from_legacy() -> dict:
 def _load_store() -> dict:
     path = _store_path()
     if not path.exists():
+        moved = _migrate_from_flat_location()
+        if moved is not None:
+            return moved
         return _migrate_from_legacy()
     try:
         with open(path, encoding="utf-8") as f:

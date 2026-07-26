@@ -463,6 +463,19 @@ def download_video(
             )
 
     if proc.returncode != 0:
+        bot_auth_error = any(
+            any(kw in line.lower() for kw in [
+                "confirm you are not a bot", "confirm you're not a bot",
+                "sign in", "cookie", "bot", "captcha", "forbidden",
+                "private video", "members-only", "login", "429"
+            ])
+            for line in stdout_lines
+        )
+        if bot_auth_error:
+            raise RuntimeError(
+                "YouTubeのアクセス・ボット制限（Sign in to confirm you're not a bot 等）によりダウンロードに失敗しました。"
+                "Cookie（cookies.txt）を設定することで回避できます。「Cookie手順」ボタンをクリックして手動保存手順をご確認ください。"
+            )
         raise RuntimeError("yt-dlp failed — check the URL and network connection")
 
     video_path: Path | None = None
