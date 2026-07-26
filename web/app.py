@@ -167,7 +167,6 @@ def _new_job(req: "StartReq") -> str:
         "video_path": None,
         "transcription_path": None,
         "chat_path": None,
-        "chat_analysis": None,
         "clips_path": None,
         "rendered": [],
         "error": None,
@@ -223,6 +222,7 @@ def _run_pipeline(job_id: str) -> None:
     try:
         video_path: Path
         chat_path: Path | None = None
+        chat_already_saved = False
         result: dict | None = None
 
         # ── Phase 1: Download ──────────────────────────────────────────────────
@@ -285,6 +285,19 @@ def _run_pipeline(job_id: str) -> None:
             with open(t_path, encoding="utf-8") as f:
                 result = json.load(f)
             log(f"▶ 文字起こし使用: {t_path.name}")
+            if chat_path is None:
+                # A prior full-pipeline run may have already saved a chat companion
+                # (pl.save_chat()'s naming) even though this suggest-only run has no
+                # fresh video/URL to re-derive it from.
+                base = t_path.stem
+                if base.endswith("_full"):
+                    base = base[:-5]
+                saved_chat = TRANSCRIPTIONS_DIR / f"chat_{base}.json"
+                if saved_chat.exists():
+                    chat_path = saved_chat
+                    chat_already_saved = True
+                    job["chat_path"] = str(chat_path)
+                    log(f"✓ Chat 使用: {chat_path.name}")
         else:
             job["stage"] = "transcribing"
             trim_start = job.get("_trim_start_sec")
@@ -325,8 +338,11 @@ def _run_pipeline(job_id: str) -> None:
             log(f"✓ Transcription: {t_path.name}")
 
         # Live chat is only ever read from this dedicated-folder copy, saved once here
-        # alongside its transcription — never straight out of downloads/.
-        if chat_path and chat_path.exists():
+        # alongside its transcription — never straight out of downloads/. Skip re-saving
+        # if chat_path already points at that saved copy (chat_already_saved): it's
+        # already had CHAT_REACTION_LAG_SEC applied, so running it through save_chat()
+        # again would double-shift the timestamps.
+        if chat_path and chat_path.exists() and not chat_already_saved:
             chat_path = pl.save_chat(chat_path, t_path)
             job["chat_path"] = str(chat_path)
             log(f"✓ Chat saved: {chat_path.name}")
@@ -343,7 +359,7 @@ def _run_pipeline(job_id: str) -> None:
             job["stage"] = "suggesting"
             log("▶ Asking Gemini for clip suggestions...")
             assert result is not None
-            job["clips"], job["chat_analysis"] = pl.suggest_clips_from_result(
+            job["clips"] = pl.suggest_clips_from_result(
                 result, chat_path, job.get("_extra_prompt"), job.get("_gemini_model")
             )
             clips_file = pl.save_clips(job["clips"], t_path)
@@ -559,7 +575,7 @@ async def job_events(jid: str):
             for text in job["logs"][cursor:]:
                 yield f"data: {json.dumps({'type': 'log', 'text': text})}\n\n"
                 cursor += 1
-            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'chat_analysis': job.get('chat_analysis'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect'), 'export': job.get('export')})}\n\n"
+            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect'), 'export': job.get('export')})}\n\n"
             if job["status"] in terminal:
                 break
             await asyncio.sleep(0.5 if job["status"] != "ready" else 1.5)
@@ -693,7 +709,7 @@ async def export_premiere(jid: str, req: ExportPremiereReq):
     def log(text: str) -> None:
         job["logs"].append(text)
 
-    def build() -> tuple[Path, Path]:
+    def build() -> Path:
         import premiere_export as px
 
         def set_proc(p, _job=job):
@@ -715,13 +731,13 @@ async def export_premiere(jid: str, req: ExportPremiereReq):
             check_cancel=check_cancel,
             set_proc=set_proc,
         )
-        return pkg_dir, Path(shutil.make_archive(str(pkg_dir), "zip", root_dir=pkg_dir))
+        return pkg_dir
 
     async def export_task() -> None:
         log(f"▶ Premiere用に書き出し: {len(indices)} 件（構図・カット適用、字幕なし）")
         try:
             loop = asyncio.get_running_loop()
-            pkg_dir, zip_path = await loop.run_in_executor(None, build)
+            pkg_dir = await loop.run_in_executor(None, build)
         except Exception as exc:
             if job.get("status") != "canceled":
                 job["status"] = "error"
@@ -735,24 +751,34 @@ async def export_premiere(jid: str, req: ExportPremiereReq):
         if job.get("status") == "canceled":
             return
         job["export"] = {
-            "filename": zip_path.name,
+            "name": pkg_dir.name,
             "directory": str(pkg_dir),
             "count": len(indices),
         }
         job["status"] = "complete"
         job["stage"] = "complete"
-        log(f"✓ {zip_path.name}")
+        log(f"✓ {pkg_dir.name}")
 
     asyncio.create_task(export_task())
     return {"ok": True, "count": len(indices)}
 
 
-@app.get("/api/exports/{filename}")
-def serve_export(filename: str):
-    path = EXPORTS_DIR / Path(filename).name
-    if not path.exists():
+@app.post("/api/exports/{name}/open")
+async def open_export_folder(name: str):
+    """書き出し先フォルダをOSのファイルマネージャーで開く"""
+    path = EXPORTS_DIR / Path(name).name
+    if not path.exists() or not path.is_dir():
         raise HTTPException(404)
-    return FileResponse(path, media_type="application/zip", filename=path.name)
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(path)])
+        else:
+            subprocess.run(["xdg-open", str(path)])
+        return {"status": "ok", "opened": str(path)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/jobs/{jid}/cancel")
@@ -917,7 +943,7 @@ def chat_activity(chat: str = Query(...)):
     messages) for the ③切り抜き提案 activity chart, computed on demand and never
     persisted (see pipeline.chat_activity()). This is a view onto the same
     analyze_chat_spikes() analysis suggest_clips_from_result() already sends to
-    Gemini for the selected chat file — see job["chat_analysis"] for that text."""
+    Gemini for the selected chat file."""
     import pipeline as pl
     path = _resolve(Path(chat).name, DOWNLOADS_DIR)
     if not path.exists():
@@ -942,7 +968,6 @@ def list_files(type: str = Query(...)):
         "transcription":   (TRANSCRIPTIONS_DIR,   ["*_full.json"]),
         "clips":           (TRANSCRIPTIONS_DIR,   ["clips*.json"]),
         "rendered_clips":  (CLIPS_DIR,              ["*.mp4"]),
-        "exports":         (EXPORTS_DIR,          ["*.zip"]),
     }
     if type not in configs:
         raise HTTPException(400, f"Unknown type: {type}")

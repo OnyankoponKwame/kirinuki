@@ -48,8 +48,9 @@ The project has three layers that communicate through the filesystem and subproc
 ### Editing-material export (`web/premiere_export.py`)
 A second, independent output path alongside the Remotion renderer, for editors who want to do
 the captioning themselves in Premiere Pro (or any other NLE).
-`POST /api/jobs/{jid}/export-premiere` writes a package under `exports/` (zipped for download
-via `GET /api/exports/{name}`) containing, per selected clip:
+`POST /api/jobs/{jid}/export-premiere` writes a package (a plain folder under `exports/`, opened
+in the OS file manager via `POST /api/exports/{name}/open` — not zipped, since the app runs
+locally and the folder is already right there on disk) containing, per selected clip:
 - an **mp4 with the vertical framing and `cutIntervals` baked in but no captions, title bar,
   or effects** — encoded by ffmpeg (H.264 CRF 18), never by Remotion
 - an `.srt` whose timings line up with that mp4 exactly
@@ -193,7 +194,7 @@ URL → yt-dlp → .mp4 (downloads/)
             ↓
       npx remotion render → *.mp4 (clips/)
             ↓ (別経路・任意)
-      premiere_export → ffmpeg → 字幕なしmp4 + SRT (exports/*.zip)
+      premiere_export → ffmpeg → 字幕なしmp4 + SRT (exports/premiere_*/)
 ```
 
 ## Clip data schema

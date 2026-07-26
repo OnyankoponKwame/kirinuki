@@ -204,7 +204,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .dl-list { display: flex; flex-direction: column; gap: 8px; }
 .dl-item { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; }
 .dl-name { font-size: 12px; font-family: monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; font-size: 12px; font-weight: 600; padding: 5px 12px; text-decoration: none; flex-shrink: 0; }
+a.btn-dl, button.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; font-size: 12px; font-weight: 600; padding: 5px 12px; text-decoration: none; flex-shrink: 0; border: none; cursor: pointer; font-family: inherit; }
 
 /* ── Misc ── */
 [hidden] { display: none !important; }
@@ -729,10 +729,6 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <div id="p3-chat-activity-note" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
       <div id="p3-chat-spikes" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
     </div>
-    <div class="field" id="p3-chat-analysis-wrap" style="margin-top:8px" hidden>
-      <label>Geminiに渡されたチャット分析レポート</label>
-      <div id="p3-chat-analysis" style="font-size:12px;color:var(--text);white-space:pre-wrap;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:240px;overflow-y:auto"></div>
-    </div>
     <div class="field" style="margin-top:8px">
       <label>追加指示（任意） ※他の選定ルールより最優先されます</label>
       <textarea id="p3-extra-prompt" rows="3" placeholder="例：&#13;&#10;・10分頃のシーンを切り抜いて&#13;&#10;・〇〇についての雑談をしている部分を切り抜いて&#13;&#10;・〇〇について熱く語っている部分を時間制限なく切り抜いて&#13;&#10;・〇〇したシーンを30秒以内でまとめて" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
@@ -1085,7 +1081,9 @@ function updateDownloadProgress(text) {
 }
 
 function showLog(n) {
-  document.getElementById('ph' + n + '-log').hidden = false;
+  const el = document.getElementById('ph' + n + '-log');
+  el.hidden = false;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function showError(n, msg) {
@@ -1323,7 +1321,6 @@ function openSSE(jobId, phaseNum, onState, onLog) {
         error: job.error,
         video_path: job.video_path,
         transcription_path: job.transcription_path,
-        chat_analysis: job.chat_analysis,
         export: job.export,
       }, { close: () => {} });
     } catch (_) {}
@@ -1506,7 +1503,6 @@ async function runPhase3() {
   if (!transFile) { alert('文字起こしファイルを選択してください'); return; }
 
   clearPhaseUI(3);
-  document.getElementById('p3-chat-analysis-wrap').hidden = true;
   showLog(3);
   setPhaseState(3, 'running');
   setBtnLoading('ph3-btn', true, '提案生成中...');
@@ -1546,13 +1542,6 @@ async function runPhase3() {
           await refreshFiles('p4-clips', 'clips');
           const s4c = document.getElementById('p4-clips');
           s4c.value = clipsFileName;
-        }
-        const analysisWrap = document.getElementById('p3-chat-analysis-wrap');
-        if (msg.chat_analysis) {
-          document.getElementById('p3-chat-analysis').textContent = msg.chat_analysis;
-          analysisWrap.hidden = false;
-        } else {
-          analysisWrap.hidden = true;
         }
         loadClipsIntoGrid(msg.clips);
         setPhaseState(3, 'done');
@@ -2727,15 +2716,16 @@ async function exportPremiere() {
         result.hidden = false;
         result.innerHTML =
           `<div class="dl-list"><div class="dl-item">`
-          + `<span class="dl-name">📦 ${escHtml(d.filename)}（${d.count} 件）</span>`
-          + `<a class="btn-dl" href="/api/exports/${encodeURIComponent(d.filename)}" download="${escHtml(d.filename)}">ダウンロード</a>`
+          + `<span class="dl-name">📁 ${escHtml(d.name)}（${d.count} 件）</span>`
+          + `<button type="button" class="btn-dl" onclick="openExportFolder('${escHtml(d.name)}')">フォルダを開く</button>`
           + `</div></div>`
           + `<div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.6">`
           + `各クリップの <code>mp4</code>（縦構図・カット適用済み、字幕なし）と、`
           + `時間軸が一致する <code>srt</code> が入っています。`
           + `Premiere Pro では mp4 をタイムラインにドラッグすると素材に合ったシーケンスが作られ、`
-          + `<code>*.srt</code> を <b>File &gt; Import</b> で読み込んでキャプショントラックに乗せれば、`
-          + `字幕の文字やスタイルを自由に編集できます。<br>`
+          + `「ファイル &gt; 読み込み...」（File &gt; Import...）で <code>*.srt</code> を読み込んで`
+          + `キャプショントラックに乗せれば、字幕の文字やスタイルを自由に編集できます`
+          + `（同じ手順はフォルダ内の <code>README.txt</code> にも記載しています）。<br>`
           + `保存先: <code>${escHtml(d.directory)}</code>`
           + `</div>`;
       }
@@ -3485,6 +3475,15 @@ async function openCookieGuide() {
     if (!res.ok) throw new Error(await res.text());
   } catch (e) {
     alert('Cookieガイドを開けませんでした: ' + e.message);
+  }
+}
+
+async function openExportFolder(name) {
+  try {
+    const res = await fetch(`/api/exports/${encodeURIComponent(name)}/open`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    alert('フォルダを開けませんでした: ' + e.message);
   }
 }
 

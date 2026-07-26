@@ -1005,11 +1005,7 @@ def suggest_clips_from_result(
     chat_path: Path | None,
     extra_prompt: str | None = None,
     gemini_model: str | None = None,
-) -> tuple[list[dict], str]:
-    """Returns (clips, chat_report) — chat_report is analyze_chat_spikes()'s text
-    report (empty string if there's no chat), the same text folded into the Gemini
-    prompt below, surfaced so the caller can show the user what was actually
-    analyzed (see web/app.py's job["chat_analysis"])."""
+) -> list[dict]:
     segments = result.get("segments", [])
     if segments:
         transcript_text = "\n".join(
@@ -1076,7 +1072,7 @@ def suggest_clips_from_result(
         if "verticalMode" not in clip:
             clip["verticalMode"] = "split"
 
-    return enrich_clip_caption_effects(clips, segments), spike_report
+    return enrich_clip_caption_effects(clips, segments)
 
 
 # ── Silence cut ───────────────────────────────────────────────────────────────
