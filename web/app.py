@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Kirinuki Web — FastAPI backend."""
 
+import atexit
 import asyncio
 import json
 import shutil
@@ -959,6 +960,10 @@ def _shutdown_studio_proc() -> None:
     if _studio_proc and _studio_proc.poll() is None:
         _terminate_studio_proc(_studio_proc)
     _studio_proc = None
+    _kill_process_on_port(STUDIO_PORT)
+
+
+atexit.register(_shutdown_studio_proc)
 
 
 def _terminate_studio_proc(proc: subprocess.Popen) -> None:

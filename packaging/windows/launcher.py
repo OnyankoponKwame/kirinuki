@@ -17,6 +17,7 @@ Layout this script expects (see build.ps1 / kirinuki.iss):
       bin/              <- ffmpeg.exe, ffprobe.exe, yt-dlp.exe
 """
 
+import atexit
 import os
 import socket
 import sys
@@ -56,6 +57,21 @@ def _log(message: str) -> None:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
     except OSError:
         pass  # nowhere left to report this — data dir itself isn't writable
+
+
+def cleanup() -> None:
+    """サーバーおよび Remotion Studio プロセスのクリーンアップを行う"""
+    _log("cleaning up server resources...")
+    try:
+        from app import STUDIO_PORT, _kill_process_on_port, _shutdown_studio_proc
+        _shutdown_studio_proc()
+        _kill_process_on_port(STUDIO_PORT)
+        _log("Remotion Studio process cleaned up successfully")
+    except Exception as e:
+        _log(f"cleanup error: {e}")
+
+
+atexit.register(cleanup)
 
 
 _COOKIE_EXTENSION_CHROME_URL = (
@@ -380,6 +396,7 @@ def main() -> None:
     _show_server_manager(data_dir)
 
     _log("user requested shutdown. exiting process.")
+    cleanup()
     os._exit(0)
 
 
