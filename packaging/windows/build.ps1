@@ -75,10 +75,9 @@ Expand-Archive -Path $pythonZip -DestinationPath $pythonExtractTmp -Force
 New-Item -ItemType Directory -Force -Path $pythonDir | Out-Null
 Copy-Item (Join-Path $pythonExtractTmp "tools\*") $pythonDir -Recurse -Force
 
-# Ensure site-packages path is set if ._pth file exists
+# Write complete sys.path setup into ._pth file so DLLs, Lib, and site-packages are all loaded
 Get-ChildItem -Path $pythonDir -Filter "python3*._pth" -ErrorAction SilentlyContinue | ForEach-Object {
-    (Get-Content $_.FullName) -replace '^#\s*import site', 'import site' | Set-Content $_.FullName
-    Add-Content $_.FullName "`nLib\site-packages"
+    Set-Content $_.FullName "python312.zip`n.`nDLLs`nLib`nLib\site-packages`nimport site" -Encoding utf8
 }
 
 # Copy DLLs from DLLs/ to python root so Windows DLL loader finds tcl86t.dll/tk86t.dll/_tkinter.pyd instantly

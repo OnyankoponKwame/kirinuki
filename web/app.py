@@ -1252,11 +1252,22 @@ async def open_studio(req: StudioReq):
                 **popen_kwargs,
             )
         _studio_video_dir = video_dir
-        await asyncio.sleep(4)
 
-        # すぐ落ちる主な原因は「別の Remotion Studio が 3009 を使っている」
-        # ——そのままだと古いツリーを見せる別インスタンスに繋がってしまう。
-        if _studio_proc.poll() is not None:
+        # Studio HTTP サーバーが実際に 3009 ポートで接続可能になるまでポーリング待機（最大 20 秒）
+        studio_ready = False
+        for _ in range(40):
+            if _studio_proc.poll() is not None:
+                break
+            try:
+                reader, writer = await asyncio.open_connection("127.0.0.1", STUDIO_PORT)
+                writer.close()
+                await writer.wait_closed()
+                studio_ready = True
+                break
+            except Exception:
+                await asyncio.sleep(0.5)
+
+        if not studio_ready and _studio_proc.poll() is not None:
             tail = studio_log.read_text(encoding="utf-8", errors="replace").strip()
             tail = "\n".join(tail.splitlines()[-5:])
             _studio_proc = None

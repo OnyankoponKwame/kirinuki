@@ -184,10 +184,20 @@ def _show_cookie_guide_dialog(data_dir: Path) -> None:
 
 def _try_show_tkinter_manager(data_dir: Path) -> bool:
     """Tkinterが利用可能な場合、専用GUIウィンドウでサーバーマネージャーを表示する"""
+    python_dir = APP_ROOT / "python"
+    tcl_dir = python_dir / "tcl"
+    if tcl_dir.exists():
+        tcl86_dir = tcl_dir / "tcl8.6"
+        tk86_dir = tcl_dir / "tk8.6"
+        os.environ["TCL_LIBRARY"] = str(tcl86_dir if tcl86_dir.exists() else tcl_dir)
+        if tk86_dir.exists():
+            os.environ["TK_LIBRARY"] = str(tk86_dir)
+
     try:
         import tkinter as tk
         from tkinter import messagebox, ttk
-    except ImportError:
+    except Exception as e:
+        _log(f"Tkinter import failed: {e}")
         return False
 
     try:
