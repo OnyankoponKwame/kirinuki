@@ -74,57 +74,9 @@ jobs: dict[str, dict[str, Any]] = {}
 _active_job: str | None = None
 _studio_proc: subprocess.Popen | None = None
 
-
-# ── Heartbeat (Auto-shutdown) ────────────────────────────────────────────────
 import os
 import signal
 import time
-
-last_heartbeat_time = time.time()
-
-@app.post("/api/heartbeat")
-async def heartbeat():
-    global last_heartbeat_time
-    last_heartbeat_time = time.time()
-    return {"status": "ok"}
-
-async def _monitor_heartbeat():
-    # パッケージ環境（KIRINUKI_BIN_DIR環境変数あり）の場合のみ、自動シャットダウンを動かす
-    if not os.getenv("KIRINUKI_BIN_DIR"):
-        return
-
-    # 初回起動時はブラウザが開いて読み込まれるまでの猶予期間（60秒）を設ける
-    await asyncio.sleep(60)
-
-    while True:
-        await asyncio.sleep(5)
-        # 現在進行中のジョブ、または Studio セッションがあるか確認。
-        # Studio は別タブで開く（index.html の target="_blank"）ため、そちらで作業している間
-        # 元のタブがバックグラウンドに回ってハートビートが途絶えることがある。Studio 起動中を
-        # 無条件でアクティブ扱いにしないと、その途絶だけでサーバーごと強制終了してしまう。
-        has_active_jobs = any(job.get("status") == "running" for job in jobs.values())
-        studio_running = _studio_proc is not None and _studio_proc.poll() is None
-        if has_active_jobs or studio_running:
-            global last_heartbeat_time
-            last_heartbeat_time = time.time()
-            continue
-
-        # 最後のハートビートから25秒以上経過していたらシャットダウン
-        if time.time() - last_heartbeat_time > 25.0:
-            print("No active clients detected (heartbeat lost). Shutting down server...")
-            # os._exit() は atexit/shutdown ハンドラを一切実行しないため、Studio を先に
-            # 明示的に止めておかないと npx の孫プロセスがポート 3009 を握ったまま孤児化する。
-            _shutdown_studio_proc()
-            try:
-                os.kill(os.getpid(), signal.SIGINT)
-            except Exception:
-                pass
-            await asyncio.sleep(5)
-            os._exit(0)
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_monitor_heartbeat())
 
 
 @app.on_event("shutdown")
@@ -979,7 +931,7 @@ def _kill_process_on_port(port: int) -> None:
     """Force-free a port that a previous, no-longer-tracked Studio process is still holding.
 
     `npx remotion studio` spawns a real `node` process under the `npx` shim, and on --reload
-    restarts (or the packaged app's heartbeat auto-shutdown, which calls os._exit) the shim's
+    restarts (or an abrupt kill of the parent, e.g. via Task Manager) the shim's
     death doesn't take that child with it. The next launch then finds the port already bound
     and Remotion Studio exits immediately — this recovers by finding and killing whatever is
     actually listening, independent of our in-memory _studio_proc handle.
@@ -1297,7 +1249,7 @@ async def open_studio(req: StudioReq):
                 shutil.copy2(src, pub_tmp / asset_name)
 
         # 前回のプロセスをここまでで確実に止めていても、--reload によるワーカー再起動や
-        # パッケージ版のハートビート自動終了 (os._exit) を挟んだ場合は npx の孫プロセスだけが
+        # 親プロセスの強制終了（Task Manager など）を挟んだ場合は npx の孫プロセスだけが
         # ポートを掴んだまま生き残ることがある。_studio_proc の状態に関係なくポートの実態を
         # 見て、塞がっていれば起動前に強制的に空ける。
         if _port_in_use(STUDIO_PORT):
