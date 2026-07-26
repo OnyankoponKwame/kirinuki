@@ -22,8 +22,14 @@ themes_store.json
 # ── Remotion 生成物 ───────────────────────────────────────────────────────────
 remotion/node_modules/
 remotion/out/
-remotion/public/
 remotion/studio-props.json
+
+# remotion/public/ 配下は本来ビルド生成物ではなく、ClipComposition.tsx / CaptionPage.tsx が
+# staticFile() で参照する必須アセット（Onoma-Pop04.mp3, kkrn_icon_user_2.png）を置く場所。
+# 丸ごとignoreしているとCIのチェックアウトが空になり、Windowsパッケージ版で
+# 「Onoma-Pop04.mp3: 404」のようなレンダー失敗を起こす（pipeline.render_clip / app._sync_studio_src
+# はファイルが無ければ黙ってコピーをスキップするため）。ここに置く新規ファイルは追跡対象にする。
+remotion/public/*.DS_Store
 
 # Remotion Studio が実行時に自動生成するファイル
 remotion/src/studioCompositions.tsx
