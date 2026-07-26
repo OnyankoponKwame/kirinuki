@@ -146,9 +146,7 @@ Remotion Studio を開いて、そこで直接修正できます。修正のし�
 Remotion Studio は、このアプリが動画を作るのに使っている描画エンジンの編集・プレビュー画面です。
 アプリのクリップカードはあくまで簡易的な見た目なので、本番と全く同じ映像を見ながら、字幕のタイミング
 やフレーム単位の位置ズレなど、アプリの操作だけでは直しきれない細かい部分を直接修正できます。
-
-<img width="1689" height="1117" alt="image" src="https://github.com/user-attachments/assets/74af7c5b-f995-4b2a-b893-2e85891cdbb6" />
-
+<img width="1713" height="1253" alt="スクリーンショット 2026-07-27 004650" src="https://github.com/user-attachments/assets/ee782af2-a32a-4d25-9ff0-401870ec49c1" />
 
 1. ④レンダリングの画面で確認したいクリップにチェックを入れ、「🎬 Studio で確認」を押します。
 2. 準備ができると通知バナーが表示されるので、「🚀 Studio を開く」から新しいタブで開きます。
