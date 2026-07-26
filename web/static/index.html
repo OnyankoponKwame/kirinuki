@@ -797,6 +797,19 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
 
     <!-- clip cards appear here -->
     <div id="ph4-clips-section" hidden>
+      <!-- Studio 起動完了通知バナー -->
+      <div id="ph4-studio-banner" style="display:none; background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border: 1px solid var(--accent, #ec4899); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+        <div style="display:flex; align-items:center; gap:12px; color:var(--text);">
+          <span style="font-size:22px">🎬</span>
+          <div>
+            <div style="font-weight:700; font-size:14px; color:var(--accent, #ec4899)">Remotion Studio の準備が完了しました</div>
+            <div style="font-size:12px; opacity:0.85; margin-top:2px">以下のボタンから新しいタブで Studio を開いてプレビュー・微調整を行えます。</div>
+          </div>
+        </div>
+        <a id="ph4-studio-link" href="#" target="_blank" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:var(--accent, #ec4899); color:#fff; font-weight:700; font-size:13px; padding:8px 16px; border-radius:8px; box-shadow:0 2px 8px rgba(236,72,153,0.4); white-space:nowrap; transition:transform 0.1s ease;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1.0)'">
+          🚀 Studio を開く ↗
+        </a>
+      </div>
       <div class="clips-hd" style="margin-bottom:12px">
         <h3 id="ph4-clips-count"></h3>
         <div style="display:flex;gap:8px;align-items:center">
@@ -2656,6 +2669,9 @@ async function openInStudio() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Studio 起動中...';
 
+  const banner = document.getElementById('ph4-studio-banner');
+  const link = document.getElementById('ph4-studio-link');
+
   try {
     const res = await fetch('/api/studio/open', {
       method: 'POST',
@@ -2681,11 +2697,15 @@ async function openInStudio() {
       showLog(4);
       appendLog('ph4-console', '✓ Studio で変更されたレイアウトを元に戻しました: ' + reverted.join(', '));
     }
-    const win = window.open(url, 'remotion-studio');
-    if (!win) {
-      showLog(4);
-      appendLog('ph4-console', `⚠️ Studio は起動しましたが、ポップアップがブロックされました: <a href="${url}" target="_blank" style="color:#38bdf8;text-decoration:underline;">${url} を開く</a>`);
+    
+    // バナー表示＆リンク更新
+    if (link) link.href = url;
+    if (banner) {
+      banner.style.display = 'flex';
+      banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+    showLog(4);
+    appendLog('ph4-console', `✓ Remotion Studio の準備が完了しました: <a href="${url}" target="_blank" style="color:#ec4899;font-weight:bold;text-decoration:underline;">${url} を開く ↗</a>`);
   } catch (err) {
     alert('Studio の起動に失敗しました: ' + err.message);
   } finally {
