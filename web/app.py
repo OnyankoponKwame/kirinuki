@@ -143,7 +143,15 @@ def _new_job(req: "StartReq") -> str:
 
 def _resolve(name: str, base: Path) -> Path:
     p = Path(name)
-    return p if p.is_absolute() else base / name
+    if p.is_absolute() and p.exists():
+        return p
+    resolved = base / name
+    if resolved.exists():
+        return resolved
+    legacy = PROJECT_DIR / base.name / name
+    if legacy.exists():
+        return legacy
+    return resolved
 
 
 # ── Background pipeline ───────────────────────────────────────────────────────
@@ -866,11 +874,11 @@ def list_files(type: str = Query(...)):
     if type not in configs:
         raise HTTPException(400, f"Unknown type: {type}")
     base, patterns = configs[type]
-    if not base.exists():
-        return []
     files: set[Path] = set()
-    for pat in patterns:
-        files.update(base.glob(pat))
+    for b in (base, PROJECT_DIR / base.name):
+        if b.exists():
+            for pat in patterns:
+                files.update(b.glob(pat))
     return [f.name for f in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)]
 
 

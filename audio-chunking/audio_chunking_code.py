@@ -4,10 +4,19 @@ import json
 from pathlib import Path
 from datetime import datetime
 import time
+import sys
 import subprocess
 import os
 import tempfile
 import re
+
+
+def _no_window_kwargs() -> dict:
+    """Extra subprocess.Popen/run kwargs to suppress a flashing console window on Windows."""
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        return {"creationflags": creationflags}
+    return {}
 
 # audio_mode → (tempfile suffix, ffmpeg codec args, pydub format)
 _AUDIO_MODE_CONFIG: dict[str, tuple[str, list[str], str]] = {
@@ -71,6 +80,7 @@ def preprocess_audio(input_path: Path, audio_mode: str = "mp3") -> tuple[Path, s
                 str(input_path),
             ],
             capture_output=True, text=True, timeout=10,
+            **_no_window_kwargs(),
         )
         total_dur = float(probe.stdout.strip())
     except Exception:
@@ -92,6 +102,7 @@ def preprocess_audio(input_path: Path, audio_mode: str = "mp3") -> tuple[Path, s
         ],
         stderr=subprocess.PIPE,
         text=True,
+        **_no_window_kwargs(),
     )
 
     last_pct = -1
@@ -490,8 +501,11 @@ def save_results(result: dict, audio_path: Path) -> Path:
         IOError: If saving results fails
     """
     try:
-        output_dir = Path("transcriptions")
-        output_dir.mkdir(exist_ok=True)
+        data_dir = os.getenv("KIRINUKI_DATA_DIR")
+        if not data_dir and os.getenv("LOCALAPPDATA"):
+            data_dir = str(Path(os.getenv("LOCALAPPDATA")) / "Kirinuki")
+        output_dir = (Path(data_dir) / "transcriptions") if data_dir else Path("transcriptions")
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_path = output_dir / f"{Path(audio_path).stem}_{timestamp}"

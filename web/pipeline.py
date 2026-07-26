@@ -21,6 +21,8 @@ GEMINI_SUGGEST_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 GEMINI_MODEL_ID = GEMINI_SUGGEST_MODELS[0]  # default
 
 PROJECT_DIR = Path(__file__).parent.parent
+DATA_DIR = cfg.get_data_dir()
+TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"
 AUDIO_DIR = PROJECT_DIR / "audio-chunking"
 REMOTION_DIR = PROJECT_DIR / "remotion"
 
@@ -281,8 +283,8 @@ def save_chat(chat_path: Path, transcription_path: Path) -> Path:
     CHAT_REACTION_LAG_SEC to compensate for that reaction delay.
     """
     entries = _read_chat_entries(chat_path)
-    out_dir = PROJECT_DIR / "transcriptions"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = TRANSCRIPTIONS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
     base = transcription_path.stem  # e.g. "title_20260510_123456_full"
     if base.endswith("_full"):
         base = base[:-5]
@@ -303,6 +305,7 @@ def save_chat(chat_path: Path, transcription_path: Path) -> Path:
 # yt-dlp の進捗行 ([download] ...) と、--print で出力させる最終ファイルパスを
 # 混同しないための目印。進捗行にも ".mp4" で終わるものがあるため必要。
 FILEPATH_MARKER = "@@KIRINUKI_FILEPATH@@"
+VIDEO_ID_MARKER = "@@KIRINUKI_VIDEO_ID@@"
 
 # ダウンロード画質。キーは API / UI から来る文字列で、値は yt-dlp の -f 式の高さ上限。
 # 未知の値が -f にそのまま渡らないよう、必ずこの表を経由して解決する。
@@ -363,6 +366,7 @@ def download_video(
         "--progress",
         # 既定 (0秒) だと毎秒数十行が SSE ログに流れ込むので 1秒間隔に間引く
         "--progress-delta", "1",
+        "--print", f"id:{VIDEO_ID_MARKER}%(id)s",
         "--print", f"after_move:{FILEPATH_MARKER}%(filepath)s",
         "-o", template,
         url,
@@ -371,14 +375,18 @@ def download_video(
     cookie_error_detected = False
     stdout_lines: list[str] = []
     filepaths: list[str] = []
+    video_id: str | None = None
 
     def consume(proc: subprocess.Popen) -> None:
         """yt-dlp の出力を1行ずつログに流しつつ、filepath とクッキーエラーを拾う。"""
-        nonlocal cookie_error_detected
+        nonlocal cookie_error_detected, video_id
         assert proc.stdout
         for raw in proc.stdout:
             line = raw.rstrip()
             if not line:
+                continue
+            if line.startswith(VIDEO_ID_MARKER):
+                video_id = line[len(VIDEO_ID_MARKER):].strip()
                 continue
             if line.startswith(FILEPATH_MARKER):
                 path = line[len(FILEPATH_MARKER):]
@@ -457,31 +465,60 @@ def download_video(
     if proc.returncode != 0:
         raise RuntimeError("yt-dlp failed — check the URL and network connection")
 
+    video_path: Path | None = None
     if filepaths:
         video_path = Path(filepaths[-1])
     else:
-        # --print が出なかった場合の保険。進捗ログ ([download] Destination: xxx.f303.mp4 など)
-        # を拾わないよう、"[" で始まらない裸のパス行だけを見る。
         mp4_lines = [l for l in stdout_lines if l.endswith(".mp4") and not l.startswith("[")]
-        if not mp4_lines:
-            raise RuntimeError("Could not find downloaded mp4 in yt-dlp output")
-        video_path = Path(mp4_lines[-1])
+        if mp4_lines:
+            video_path = Path(mp4_lines[-1])
 
-    if not video_path.exists():
-        try:
-            files = list(video_path.parent.glob("*"))
-            log(f"Debug: Output directory contains {len(files)} files:")
-            for f in files:
-                log(f"  - {f.name}")
-        except Exception as e:
-            log(f"Debug: Failed to list files: {e}")
-        raise RuntimeError(f"Downloaded file missing: {video_path}")
+    # Windows環境等で絵文字やタイトルのサニタイズ・文字数制限の差異により
+    # yt-dlpが報告したパスと実際に生成されたパスが異なる場合のフォールバック処理
+    if video_path is None or not video_path.exists():
+        candidate: Path | None = None
+        # 1. video_id が特定できていれば output_dir から *<video_id>*.mp4 を探す
+        if video_id:
+            candidates = list(output_dir.glob(f"*{video_id}*.mp4"))
+            if candidates:
+                candidate = candidates[0]
 
+        # 2. video_id が不明または見つからない場合、出力ディレクトリ内の最新の .mp4 ファイルを採用
+        if not candidate:
+            mp4s = list(output_dir.glob("*.mp4"))
+            if mp4s:
+                candidate = max(mp4s, key=lambda p: p.stat().st_mtime)
+
+        if candidate and candidate.exists():
+            log(f"通知: yt-dlpが報告したファイルパス ({video_path}) が見つからなかったため、検出された実際のファイル ({candidate.name}) を採用しました。")
+            video_path = candidate
+        else:
+            try:
+                files = list(output_dir.glob("*"))
+                log(f"Debug: Output directory contains {len(files)} files:")
+                for f in files:
+                    log(f"  - {f.name}")
+            except Exception as e:
+                log(f"Debug: Failed to list files: {e}")
+            raise RuntimeError(f"Downloaded file missing: {video_path}")
+
+    # チャットログファイルの検出とフォールバック
     chat_path = video_path.with_suffix("").with_suffix(".live_chat.json")
     if not chat_path.exists():
-        return video_path, None
-    slim_live_chat(chat_path, log)
-    return video_path, chat_path
+        matched_chats: list[Path] = []
+        if video_id:
+            matched_chats = list(output_dir.glob(f"*{video_id}*.live_chat.json"))
+        if not matched_chats:
+            matched_chats = sorted(output_dir.glob("*.live_chat.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if matched_chats:
+            chat_path = matched_chats[0]
+        else:
+            chat_path = None
+
+    if chat_path and chat_path.exists():
+        slim_live_chat(chat_path, log)
+        return video_path, chat_path
+    return video_path, None
 
 
 # ── Download chat only ────────────────────────────────────────────────────────
@@ -670,8 +707,8 @@ def run_transcription(
 
 
 def save_transcription(result: dict, video_path: Path) -> Path:
-    out_dir = PROJECT_DIR / "transcriptions"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = TRANSCRIPTIONS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = out_dir / f"{video_path.stem}_{ts}_full.json"
     with open(path, "w", encoding="utf-8") as f:
@@ -680,8 +717,8 @@ def save_transcription(result: dict, video_path: Path) -> Path:
 
 
 def save_clips(clips: list[dict], transcription_path: Path) -> Path:
-    out_dir = PROJECT_DIR / "transcriptions"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = TRANSCRIPTIONS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
     base = transcription_path.stem  # e.g. "title_20260510_123456_full"
     if base.endswith("_full"):
         base = base[:-5]

@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import sys
 import subprocess
 from pathlib import Path
 
@@ -12,11 +13,19 @@ PUBLIC_DIR = REMOTION_DIR / "public"
 OUT_DIR = Path(__file__).parent / "clips"
 
 
+def _no_window_kwargs() -> dict:
+    """Extra subprocess.Popen/run kwargs to suppress a flashing console window on Windows."""
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        return {"creationflags": creationflags}
+    return {}
+
+
 def ensure_remotion_installed() -> None:
     node_modules = REMOTION_DIR / "node_modules"
     if not node_modules.exists():
         print("Installing Remotion dependencies...")
-        subprocess.run(["npm", "install"], cwd=REMOTION_DIR, check=True)
+        subprocess.run(["npm", "install"], cwd=REMOTION_DIR, check=True, **_no_window_kwargs())
 
 
 def make_captions(segments: list[dict], start_sec: float, end_sec: float) -> list[dict]:
@@ -83,6 +92,7 @@ def render_clip(
         ],
         cwd=REMOTION_DIR,
         check=True,
+        **_no_window_kwargs(),
     )
     return output_path
 
