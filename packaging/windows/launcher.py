@@ -201,6 +201,14 @@ def _show_cookie_guide_dialog(data_dir: Path) -> None:
 def _try_show_tkinter_manager(data_dir: Path) -> bool:
     """Tkinterが利用可能な場合、専用GUIウィンドウでサーバーマネージャーを表示する"""
     python_dir = APP_ROOT / "python"
+    python_lib = python_dir / "Lib"
+    python_dlls = python_dir / "DLLs"
+
+    # sys.path に python/Lib と python/DLLs を明示的に追加する
+    for path_item in [python_lib, python_dlls]:
+        if path_item.exists() and str(path_item) not in sys.path:
+            sys.path.insert(0, str(path_item))
+
     tcl_dir = python_dir / "tcl"
     if tcl_dir.exists():
         tcl86_dir = tcl_dir / "tcl8.6"
