@@ -67,13 +67,29 @@ def _auto_split_title(title: str, usable_width: float) -> str:
     total_em = _effective_width(title)
     if total_em * MAX_TITLE_FONT_PX <= usable_width:
         return title
-    best_idx, best_max = 1, math.inf
+
+    best2_idx, best2_max = 1, math.inf
     for i in range(1, len(title)):
         left_em = _effective_width(title[:i])
         max_em = max(left_em, total_em - left_em)
-        if max_em < best_max:
-            best_max, best_idx = max_em, i
-    return f"{title[:best_idx]}\n{title[best_idx:]}"
+        if max_em < best2_max:
+            best2_max, best2_idx = max_em, i
+
+    if best2_max * MAX_TITLE_FONT_PX <= usable_width or len(title) < 3:
+        return f"{title[:best2_idx]}\n{title[best2_idx:]}"
+
+    best3_idx1, best3_idx2, best3_max = 1, 2, math.inf
+    for i in range(1, len(title) - 1):
+        for j in range(i + 1, len(title)):
+            line1_em = _effective_width(title[:i])
+            line2_em = _effective_width(title[i:j])
+            line3_em = _effective_width(title[j:])
+            max_em = max(line1_em, line2_em, line3_em)
+            if max_em < best3_max:
+                best3_max = max_em
+                best3_idx1, best3_idx2 = i, j
+
+    return f"{title[:best3_idx1]}\n{title[best3_idx1:best3_idx2]}\n{title[best3_idx2:]}"
 
 
 def _calc_title_bar_height(title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H) -> int:

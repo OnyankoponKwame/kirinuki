@@ -252,22 +252,48 @@ function getEffectiveWidth(s: string): number {
   return w;
 }
 
-// 1行に収まらない場合のみ、最長行のemが最小になる分割点を探す
+// 1行に収まらない場合、2行分割または3行分割で最長行のemが最小になる分割点を探す
 function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number): string {
   if (title.includes("\n")) return title;
   const totalEm = getEffectiveWidth(title);
   if (totalEm * maxFontPx <= usableWidth) return title;
-  let bestIdx = 1;
-  let bestMax = Infinity;
+
+  // 2行分割の最適な分割点を探す
+  let best2Idx = 1;
+  let best2Max = Infinity;
   for (let i = 1; i < title.length; i++) {
     const leftEm = getEffectiveWidth(title.slice(0, i));
     const maxEm = Math.max(leftEm, totalEm - leftEm);
-    if (maxEm < bestMax) {
-      bestMax = maxEm;
-      bestIdx = i;
+    if (maxEm < best2Max) {
+      best2Max = maxEm;
+      best2Idx = i;
     }
   }
-  return `${title.slice(0, bestIdx)}\n${title.slice(bestIdx)}`;
+
+  // 2行分割でフォントサイズを縮小せずに収まる場合、または文字数が3文字未満の場合は2行分割を採用
+  if (best2Max * maxFontPx <= usableWidth || title.length < 3) {
+    return `${title.slice(0, best2Idx)}\n${title.slice(best2Idx)}`;
+  }
+
+  // 2行分割でも収まらない場合は 3行分割の最適な分割点を探す
+  let best3Idx1 = 1;
+  let best3Idx2 = 2;
+  let best3Max = Infinity;
+  for (let i = 1; i < title.length - 1; i++) {
+    for (let j = i + 1; j < title.length; j++) {
+      const line1Em = getEffectiveWidth(title.slice(0, i));
+      const line2Em = getEffectiveWidth(title.slice(i, j));
+      const line3Em = getEffectiveWidth(title.slice(j));
+      const maxEm = Math.max(line1Em, line2Em, line3Em);
+      if (maxEm < best3Max) {
+        best3Max = maxEm;
+        best3Idx1 = i;
+        best3Idx2 = j;
+      }
+    }
+  }
+
+  return `${title.slice(0, best3Idx1)}\n${title.slice(best3Idx1, best3Idx2)}\n${title.slice(best3Idx2)}`;
 }
 
 const MIN_TITLE_BAR_H = 280;

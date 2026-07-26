@@ -87,6 +87,12 @@ if (Test-Path $pythonDllsDir) {
     Get-ChildItem -Path $pythonDllsDir -Filter "*.pyd" -ErrorAction SilentlyContinue | Copy-Item -Destination $pythonDir -Force
 }
 
+# Copy bundled Tkinter standard library files to app/python/Lib/tkinter
+$bundledTkinter = Join-Path $PSScriptRoot "Lib\tkinter"
+if (Test-Path $bundledTkinter) {
+    Copy-Item $bundledTkinter (Join-Path $pythonDir "Lib\tkinter") -Recurse -Force
+}
+
 $getPip = Join-Path $DownloadDir "get-pip.py"
 Download-File $GetPipUrl $getPip
 Invoke-Checked "bootstrap pip" { & "$pythonDir\python.exe" $getPip --no-warn-script-location }
