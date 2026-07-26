@@ -184,6 +184,10 @@ def _try_show_pystray_manager(data_dir: Path) -> bool:
         def on_open_data_dir(icon, item):
             _open_folder(data_dir)
 
+        def on_open_remotion_out(icon, item):
+            # Remotion Studio の手動レンダーは仕様上ここ固定（data_dir/clips には出せない）
+            _open_folder(APP_ROOT / "remotion" / "out")
+
         def on_show_cookie_guide(icon, item):
             _show_cookie_guide_dialog(data_dir)
 
@@ -195,6 +199,7 @@ def _try_show_pystray_manager(data_dir: Path) -> bool:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("🌐 Web画面（ブラウザ）を開く", on_open_browser, default=True),
             pystray.MenuItem("📂 インストールフォルダを開く", on_open_data_dir),
+            pystray.MenuItem("🎬 Remotion（動画出力先）を開く", on_open_remotion_out),
             pystray.MenuItem("🍪 Cookieの手動保存手順を見る", on_show_cookie_guide),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("❌ Kirinuki サーバーを終了する", on_shutdown),
