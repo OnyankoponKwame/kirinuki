@@ -39,7 +39,7 @@ REMOTION_DIR = PROJECT_DIR / "remotion"
 STUDIO_SRC_DIR = REMOTION_DIR / "studio-src"
 # remotion.config.ts の Config.setStudioPort(3009) と一致させること
 STUDIO_PORT = 3009
-CLIPS_DIR = DATA_DIR / "remotion" / "out"
+CLIPS_DIR = DATA_DIR / "clips"
 EXPORTS_DIR = DATA_DIR / "exports"
 LOGS_DIR = cfg.get_log_dir()
 
@@ -65,6 +65,31 @@ def migrate_legacy_transcriptions() -> None:
 
 
 migrate_legacy_transcriptions()
+
+
+def migrate_legacy_clips() -> None:
+    """Migrate rendered clips from the old DATA_DIR/remotion/out layout (CLIPS_DIR was
+    nested under a "remotion" folder to mirror Remotion CLI's own output convention) into
+    CLIPS_DIR, now a DATA_DIR/clips sibling of downloads/transcriptions/exports."""
+    legacy_dir = DATA_DIR / "remotion" / "out"
+    if legacy_dir.exists() and legacy_dir.resolve() != CLIPS_DIR.resolve():
+        CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+        for item in legacy_dir.iterdir():
+            if item.is_file():
+                dest = CLIPS_DIR / item.name
+                if not dest.exists():
+                    try:
+                        shutil.move(str(item), str(dest))
+                    except Exception:
+                        pass
+        try:
+            if not any(legacy_dir.iterdir()):
+                legacy_dir.rmdir()
+        except Exception:
+            pass
+
+
+migrate_legacy_clips()
 
 app = FastAPI(title="Kirinuki Web")
 
