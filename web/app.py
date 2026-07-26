@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -97,9 +98,13 @@ async def _monitor_heartbeat():
 
     while True:
         await asyncio.sleep(5)
-        # 現在進行中のジョブがあるか確認
+        # 現在進行中のジョブ、または Studio セッションがあるか確認。
+        # Studio は別タブで開く（index.html の target="_blank"）ため、そちらで作業している間
+        # 元のタブがバックグラウンドに回ってハートビートが途絶えることがある。Studio 起動中を
+        # 無条件でアクティブ扱いにしないと、その途絶だけでサーバーごと強制終了してしまう。
         has_active_jobs = any(job.get("status") == "running" for job in jobs.values())
-        if has_active_jobs:
+        studio_running = _studio_proc is not None and _studio_proc.poll() is None
+        if has_active_jobs or studio_running:
             global last_heartbeat_time
             last_heartbeat_time = time.time()
             continue
@@ -961,7 +966,8 @@ class StudioReq(BaseModel):
     clips: list[dict]
 
 
-_studio_video_dir: str | None = None  # public-dir the current Studio was started with
+_studio_video_path: str | None = None  # source video the current Studio was started with
+_studio_pub_dir: Path | None = None  # scratch --public-dir Studio was started with (see open_studio)
 
 
 def _port_in_use(port: int) -> bool:
@@ -1005,11 +1011,15 @@ def _kill_process_on_port(port: int) -> None:
 
 def _shutdown_studio_proc() -> None:
     """Kill the tracked Studio process (if any) so the server never exits leaving it orphaned."""
-    global _studio_proc
+    global _studio_proc, _studio_pub_dir, _studio_video_path
     if _studio_proc and _studio_proc.poll() is None:
         _terminate_studio_proc(_studio_proc)
     _studio_proc = None
     _kill_process_on_port(STUDIO_PORT)
+    if _studio_pub_dir is not None:
+        shutil.rmtree(_studio_pub_dir, ignore_errors=True)
+        _studio_pub_dir = None
+    _studio_video_path = None
 
 
 atexit.register(_shutdown_studio_proc)
@@ -1215,7 +1225,7 @@ def _generate_studio_compositions(
 
 @app.post("/api/studio/open")
 async def open_studio(req: StudioReq):
-    global _studio_proc, _studio_video_dir
+    global _studio_proc, _studio_video_path, _studio_pub_dir
 
     video_path = _resolve(req.video_path, DOWNLOADS_DIR)
     transcription_path = _resolve(req.transcription_path, TRANSCRIPTIONS_DIR)
@@ -1260,26 +1270,31 @@ async def open_studio(req: StudioReq):
         json.dumps(studio_data, ensure_ascii=False, indent=2),
     )
 
-    video_dir = str(video_path.parent)
-
-    # remotion/public/ の共有アセットを video_dir に同期（staticFile 用）
-    pub_dir = REMOTION_DIR / "public"
-    if pub_dir.exists():
-        for asset in pub_dir.glob("*"):
-            if asset.is_file() and not asset.name.startswith("."):
-                dst_asset = video_path.parent / asset.name
-                if not dst_asset.exists():
-                    try:
-                        shutil.copy2(asset, dst_asset)
-                    except Exception:
-                        pass
+    video_abs = video_path.resolve()
 
     studio_running = _studio_proc and _studio_proc.poll() is None
 
-    if not studio_running or _studio_video_dir != video_dir:
+    if not studio_running or _studio_video_path != str(video_abs):
         if studio_running:
             _terminate_studio_proc(_studio_proc)
         _studio_proc = None
+
+        if _studio_pub_dir is not None:
+            shutil.rmtree(_studio_pub_dir, ignore_errors=True)
+            _studio_pub_dir = None
+
+        # downloads/ 全体を --public-dir にすると、Remotionのbundlerがそこにある動画を
+        # 全部一時ディレクトリへコピーしてしまう（render_clip() と同じ問題。pipeline.py の
+        # コメント参照）。ここでもこの動画1本だけをスクラッチディレクトリに用意する。
+        pub_tmp = Path(tempfile.mkdtemp(prefix="remotion_studio_pub_"))
+        try:
+            os.link(video_abs, pub_tmp / video_abs.name)
+        except OSError:
+            shutil.copy2(video_abs, pub_tmp / video_abs.name)
+        for asset_name in ["kkrn_icon_user_2.png", "Onoma-Pop04.mp3"]:
+            src = REMOTION_DIR / "public" / asset_name
+            if src.exists():
+                shutil.copy2(src, pub_tmp / asset_name)
 
         # 前回のプロセスをここまでで確実に止めていても、--reload によるワーカー再起動や
         # パッケージ版のハートビート自動終了 (os._exit) を挟んだ場合は npx の孫プロセスだけが
@@ -1313,14 +1328,15 @@ async def open_studio(req: StudioReq):
                     # remotion/src を守るため（_sync_studio_src 参照）
                     "studio-src/index.ts",
                     "--no-open",
-                    "--public-dir", video_dir,
+                    "--public-dir", str(pub_tmp),
                 ],
                 cwd=REMOTION_DIR,
                 stdout=logf,
                 stderr=subprocess.STDOUT,
                 **popen_kwargs,
             )
-        _studio_video_dir = video_dir
+        _studio_video_path = str(video_abs)
+        _studio_pub_dir = pub_tmp
 
         # Studio HTTP サーバーが実際に 3009 ポートで接続可能になるまでポーリング待機（最大 20 秒）
         studio_ready = False
