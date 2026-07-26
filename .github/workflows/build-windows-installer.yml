@@ -34,3 +34,4 @@ jobs:
           name: KirinukiSetup
           path: dist/KirinukiSetup.exe
           if-no-files-found: error
+

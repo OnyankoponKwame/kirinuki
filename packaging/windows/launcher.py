@@ -307,12 +307,22 @@ def _try_show_taskdialog_manager(data_dir: Path) -> bool:
         TDF_ALLOW_DIALOG_CANCELLATION = 0x0008
         TD_INFORMATION_ICON = 65533
 
-        buttons = (TASKDIALOG_BUTTON * 5)(
+        # コマンドリンク（詳細説明付き）用のボタン定義
+        buttons_cmd_links = (TASKDIALOG_BUTTON * 5)(
             TASKDIALOG_BUTTON(101, f"Web画面（ブラウザ）を開く\nhttp://{HOST}:{PORT} を既定のブラウザで開きます"),
             TASKDIALOG_BUTTON(102, "インストールフォルダを開く\nプログラム本体や関連ツールがあるフォルダを開きます"),
             TASKDIALOG_BUTTON(103, "データフォルダを開く\ncookies.txt やログファイルが保存されるフォルダを開きます"),
             TASKDIALOG_BUTTON(104, "Cookieの手動保存手順を見る\n年齢制限・メンバー限定動画ダウンロード用の設定方法を表示します"),
             TASKDIALOG_BUTTON(105, "Kirinuki サーバーを終了する\nWebサーバーを停止してアプリケーションを終了します"),
+        )
+
+        # 標準ボタン（Comctl32 v6なしのフォールバック用）のボタン定義
+        buttons_standard = (TASKDIALOG_BUTTON * 5)(
+            TASKDIALOG_BUTTON(101, "Web画面（ブラウザ）を開く"),
+            TASKDIALOG_BUTTON(102, "インストールフォルダを開く"),
+            TASKDIALOG_BUTTON(103, "データフォルダを開く"),
+            TASKDIALOG_BUTTON(104, "Cookieの手動保存手順を見る"),
+            TASKDIALOG_BUTTON(105, "Kirinuki サーバーを終了する"),
         )
 
         class TASKDIALOGCONFIG(ctypes.Structure):
@@ -344,40 +354,48 @@ def _try_show_taskdialog_manager(data_dir: Path) -> bool:
             ]
 
         _log("showing TaskDialog server manager")
-        while True:
-            config = TASKDIALOGCONFIG()
-            config.cbSize = ctypes.sizeof(TASKDIALOGCONFIG)
-            config.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION
-            config.pszWindowTitle = "Kirinuki サーバーマネージャー"
-            config.hMainIcon = ctypes.cast(TD_INFORMATION_ICON, wintypes.LPCWSTR)
-            config.pszMainInstruction = "Kirinuki サーバーが正常に実行中です"
-            config.pszContent = f"サーバーアドレス: http://{HOST}:{PORT}\nご希望の操作を選択してください。"
-            config.cButtons = len(buttons)
-            config.pButtons = buttons
 
-            pnButton = ctypes.c_int()
+        # 最初にコマンドリンク形式を試す。失敗した場合は標準ボタン形式で試す
+        attempts = [
+            (TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION, buttons_cmd_links),
+            (TDF_ALLOW_DIALOG_CANCELLATION, buttons_standard),
+        ]
 
-            res = ctypes.windll.comctl32.TaskDialogIndirect(
-                ctypes.byref(config), ctypes.byref(pnButton), None, None
-            )
+        for flags, btns in attempts:
+            while True:
+                config = TASKDIALOGCONFIG()
+                config.cbSize = ctypes.sizeof(TASKDIALOGCONFIG)
+                config.dwFlags = flags
+                config.pszWindowTitle = "Kirinuki サーバーマネージャー"
+                config.hMainIcon = ctypes.cast(TD_INFORMATION_ICON, wintypes.LPCWSTR)
+                config.pszMainInstruction = "Kirinuki サーバーが正常に実行中です"
+                config.pszContent = f"サーバーアドレス: http://{HOST}:{PORT}\nご希望の操作を選択してください。"
+                config.cButtons = len(btns)
+                config.pButtons = btns
 
-            if res != 0:
-                _log(f"TaskDialogIndirect failed with return code {res}")
-                return False
+                pnButton = ctypes.c_int()
 
-            btn_id = pnButton.value
-            if btn_id == 101:
-                webbrowser.open(f"http://{HOST}:{PORT}")
-            elif btn_id == 102:
-                _open_folder(APP_ROOT)
-            elif btn_id == 103:
-                _open_folder(data_dir)
-            elif btn_id == 104:
-                _show_cookie_guide_dialog(data_dir)
-            elif btn_id in (105, 2):  # 105: 終了ボタン, 2: IDCANCEL (閉じるボタン)
-                break
+                res = ctypes.windll.comctl32.TaskDialogIndirect(
+                    ctypes.byref(config), ctypes.byref(pnButton), None, None
+                )
 
-        return True
+                if res != 0:
+                    _log(f"TaskDialogIndirect with flags {flags:#x} failed with return code {res}")
+                    break
+
+                btn_id = pnButton.value
+                if btn_id == 101:
+                    webbrowser.open(f"http://{HOST}:{PORT}")
+                elif btn_id == 102:
+                    _open_folder(APP_ROOT)
+                elif btn_id == 103:
+                    _open_folder(data_dir)
+                elif btn_id == 104:
+                    _show_cookie_guide_dialog(data_dir)
+                elif btn_id in (105, 2):  # 105: 終了ボタン, 2: IDCANCEL (閉じるボタン)
+                    return True
+
+        return False
     except Exception as e:
         _log(f"TaskDialog manager failed: {e}")
         return False
@@ -392,11 +410,31 @@ def _show_server_manager(data_dir: Path) -> None:
         return
 
     # フォールバック
-    _log("press enter to shutdown (fallback manager)")
-    try:
-        input()
-    except KeyboardInterrupt:
-        pass
+    _log("showing fallback server manager (MessageBox / event wait)")
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            f"Kirinuki サーバーが正常に起動し、実行中です。\n\n"
+            f"アドレス: http://{HOST}:{PORT}\n"
+            f"データ保存先: {data_dir}\n\n"
+            f"[ OK ] をクリックすると Kirinuki サーバーを終了します。",
+            "Kirinuki サーバーマネージャー",
+            0x40,  # MB_ICONINFORMATION
+        )
+    else:
+        try:
+            if sys.stdin is not None and sys.stdin.isatty():
+                input("Press Enter to shutdown Kirinuki server...\n")
+            else:
+                stop_event = threading.Event()
+                stop_event.wait()
+        except (RuntimeError, EOFError, OSError, KeyboardInterrupt):
+            stop_event = threading.Event()
+            try:
+                stop_event.wait()
+            except KeyboardInterrupt:
+                pass
 
 
 def main() -> None:
