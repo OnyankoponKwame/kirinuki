@@ -1193,6 +1193,19 @@ async def open_studio(req: StudioReq):
     )
 
     video_dir = str(video_path.parent)
+
+    # remotion/public/ の共有アセットを video_dir に同期（staticFile 用）
+    pub_dir = REMOTION_DIR / "public"
+    if pub_dir.exists():
+        for asset in pub_dir.glob("*"):
+            if asset.is_file() and not asset.name.startswith("."):
+                dst_asset = video_path.parent / asset.name
+                if not dst_asset.exists():
+                    try:
+                        shutil.copy2(asset, dst_asset)
+                    except Exception:
+                        pass
+
     studio_running = _studio_proc and _studio_proc.poll() is None
 
     if not studio_running or _studio_video_dir != video_dir:

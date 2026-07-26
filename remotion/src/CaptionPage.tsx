@@ -1,4 +1,4 @@
-import { AbsoluteFill, Audio, Img, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { TikTokPage } from "@remotion/captions";
 import { THEMES, DEFAULT_THEME_KEY } from "./themes";
 import type { ClipTheme } from "./themes";
@@ -7,8 +7,9 @@ import {
   type CaptionEffect,
   type CaptionFontKey,
 } from "./captionStyles";
-import userIconSrc from "../public/kkrn_icon_user_2.png";
-import popSound from "../public/Onoma-Pop04.mp3";
+
+const userIconSrc = staticFile("kkrn_icon_user_2.png");
+const popSound = staticFile("Onoma-Pop04.mp3");
 
 const OUTLINE_COLOR = "#000000";
 const TEXT_SHADOW = [

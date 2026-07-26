@@ -2656,6 +2656,9 @@ async function openInStudio() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Studio 起動中...';
 
+  // ポップアップブロックを防止するため、クリックの直後（非同期fetchの前）にタブを空で開く
+  const studioTab = window.open('about:blank', 'remotion-studio');
+
   try {
     const res = await fetch('/api/studio/open', {
       method: 'POST',
@@ -2681,8 +2684,13 @@ async function openInStudio() {
       showLog(4);
       appendLog('ph4-console', '✓ Studio で変更されたレイアウトを元に戻しました: ' + reverted.join(', '));
     }
-    window.open(url, 'remotion-studio');
+    if (studioTab) {
+      studioTab.location.href = url;
+    } else {
+      window.open(url, 'remotion-studio');
+    }
   } catch (err) {
+    if (studioTab) studioTab.close();
     alert('Studio の起動に失敗しました: ' + err.message);
   } finally {
     btn.disabled = false;

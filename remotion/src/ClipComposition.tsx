@@ -26,7 +26,8 @@ import {
   type CaptionEffect,
 } from "./captionStyles";
 import studioData from "./studioData.json";
-import popSound from "../public/Onoma-Pop04.mp3";
+
+const popSound = staticFile("Onoma-Pop04.mp3");
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
