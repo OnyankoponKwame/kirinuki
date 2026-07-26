@@ -790,6 +790,7 @@ class SplitGeometryReq(BaseModel):
     title: str = ""
     splitTopRatio: float = 4.5
     theme: str | None = None
+    titleMaxLines: int = 3
 
 
 @app.post("/api/split-geometry")
@@ -814,6 +815,7 @@ def split_geometry(req: SplitGeometryReq):
     g = px.split_geometry(
         req.title, max(1, min(9, req.splitTopRatio)),
         safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,
+        title_max_lines=req.titleMaxLines,
     )
     return {
         "seqW": g.seq_w,
@@ -1165,6 +1167,8 @@ def _generate_studio_compositions(
             props["captionFont"] = clip["captionFont"]
         if clip.get("cutIntervals"):
             props["cutIntervals"] = clip["cutIntervals"]
+        if clip.get("titleMaxLines") is not None:
+            props["titleMaxLines"] = int(clip["titleMaxLines"])
         props.update(theme_store.resolve_theme_props(clip.get("theme")))
 
         cut_ivs = clip.get("cutIntervals")

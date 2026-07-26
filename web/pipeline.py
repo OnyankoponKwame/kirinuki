@@ -1436,6 +1436,8 @@ def render_clip(
         props_data["captionFont"] = clip["captionFont"]
     if clip.get("cutIntervals"):
         props_data["cutIntervals"] = clip["cutIntervals"]
+    if clip.get("titleMaxLines") is not None:
+        props_data["titleMaxLines"] = int(clip["titleMaxLines"])
     props_data.update(theme_store.resolve_theme_props(clip.get("theme")))
     effect_count = sum(1 for c in props_data["captions"] if c.get("effect"))
     if effect_count:

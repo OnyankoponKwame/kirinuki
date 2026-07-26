@@ -861,6 +861,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
               字幕エフェクトをつける
             </label>
           </div>
+          <div>
+            <div class="gs-field-label"><span>タイトル行数</span></div>
+            <select id="global-title-lines" style="font-size:12px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%">
+              <option value="2">2行まで</option>
+              <option value="3" selected>3行まで</option>
+              <option value="0">なし（表示しない）</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="clips-grid" id="ph4-clips-grid"></div>
@@ -1698,6 +1706,9 @@ function initGlobalClipSettings(firstClip) {
 
   document.getElementById('global-caption-effects').checked =
     (firstClip && firstClip.captionEffectsEnabled) ?? true;
+
+  document.getElementById('global-title-lines').value =
+    String((firstClip && firstClip.titleMaxLines) ?? 3);
 }
 
 function globalIsVertical() {
@@ -2238,6 +2249,7 @@ async function refreshFaceGeometry() {
         title: card.querySelector('.clip-title-input').value,
         splitTopRatio: parseFloat(document.getElementById('global-split-top-ratio').value),
         theme: document.getElementById('global-theme').value,
+        titleMaxLines: parseInt(document.getElementById('global-title-lines').value, 10),
       }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.status);
@@ -2534,6 +2546,7 @@ function readGridClips() {
   const globalSplitTopRatio = parseFloat(document.getElementById('global-split-top-ratio').value);
   const globalTheme = document.getElementById('global-theme').value;
   const globalCaptionEffectsEnabled = document.getElementById('global-caption-effects').checked;
+  const globalTitleMaxLines = parseInt(document.getElementById('global-title-lines').value, 10);
   return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => {
     const cutIntervals = JSON.parse(c.dataset.cutIntervals || 'null');
     const cardSrcAspect = parseFloat(c.dataset.srcAspect) || globalSrcAspect;
@@ -2554,6 +2567,7 @@ function readGridClips() {
       mainCropX: parseInt(c.querySelector('.clip-main-crop-x').value, 10),
       mainCropY: parseInt(c.querySelector('.clip-main-crop-y').value, 10),
       theme: globalTheme,
+      titleMaxLines: globalTitleMaxLines,
       reason: '',
     };
     if (cutIntervals) {

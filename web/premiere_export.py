@@ -61,7 +61,7 @@ def _effective_width(s: str) -> float:
     return sum(0.55 if ord(ch) < 256 else 1.0 for ch in s)
 
 
-def _auto_split_title(title: str, usable_width: float) -> str:
+def _auto_split_title(title: str, usable_width: float, max_lines: int = 3) -> str:
     if "\n" in title:
         return title
     total_em = _effective_width(title)
@@ -75,7 +75,7 @@ def _auto_split_title(title: str, usable_width: float) -> str:
         if max_em < best2_max:
             best2_max, best2_idx = max_em, i
 
-    if best2_max * MAX_TITLE_FONT_PX <= usable_width or len(title) < 3:
+    if max_lines <= 2 or best2_max * MAX_TITLE_FONT_PX <= usable_width or len(title) < 3:
         return f"{title[:best2_idx]}\n{title[best2_idx:]}"
 
     best3_idx1, best3_idx2, best3_max = 1, 2, math.inf
@@ -92,10 +92,12 @@ def _auto_split_title(title: str, usable_width: float) -> str:
     return f"{title[:best3_idx1]}\n{title[best3_idx1:best3_idx2]}\n{title[best3_idx2:]}"
 
 
-def _calc_title_bar_height(title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H) -> int:
-    if not title:
+def _calc_title_bar_height(
+    title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H, max_lines: int = 3
+) -> int:
+    if not title or max_lines == 0:
         return 0
-    display = _auto_split_title(title, container_width - TITLE_H_PADDING * 2)
+    display = _auto_split_title(title, container_width - TITLE_H_PADDING * 2, max_lines)
     lines = display.split("\n")
     usable_width = container_width - TITLE_H_PADDING * 2
     longest_em = max(_effective_width(l) for l in lines)
@@ -188,6 +190,7 @@ def split_geometry(
     seq_h: int = 1920,
     safe_top_ratio: float = SHORTS_SAFE_TOP_RATIO,
     title_bar_min_height: int = MIN_TITLE_BAR_H,
+    title_max_lines: int = 3,
 ) -> SplitGeometry:
     """Split-mode panel bounds — mirrors ClipComposition.tsx's 二段構成モード block.
 
@@ -203,7 +206,7 @@ def split_geometry(
     read off the module constants whenever a clip's theme overrides them.
     """
     safe_top = _jsround(seq_h * safe_top_ratio)
-    title_bar_h = _calc_title_bar_height(title, seq_w, title_bar_min_height)
+    title_bar_h = _calc_title_bar_height(title, seq_w, title_bar_min_height, title_max_lines)
     main_top = safe_top + title_bar_h
     main_h = _jsround((seq_h - main_top) * split_top_ratio / 10)
     bottom_top = main_top + main_h
@@ -252,9 +255,11 @@ def compute_layers(clip: dict, src_aspect: float, theme: dict | None = None) -> 
     top_margin = theme.get("titleTopMargin")
     safe_top_ratio = (top_margin / 100) if top_margin is not None else SHORTS_SAFE_TOP_RATIO
     title_bar_min_height = theme.get("titleBarMinHeight") or MIN_TITLE_BAR_H
+    title_max_lines = 3 if clip.get("titleMaxLines") is None else int(clip["titleMaxLines"])
     geo = split_geometry(
         str(clip.get("title", "")), float(clip.get("splitTopRatio", 4.5) or 4.5), seq_w, seq_h,
         safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,
+        title_max_lines=title_max_lines,
     )
     main_top, main_h = geo.main_top, geo.main_h
     bottom_top, bottom_h = geo.bottom_top, geo.bottom_h

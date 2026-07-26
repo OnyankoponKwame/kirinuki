@@ -204,6 +204,12 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `cropX` — horizontal crop position 0–100%
 - `faceCamZoom`, `faceCamY` — for split mode face-cam
 - `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
+- `titleMaxLines` — caps the title bar's auto-wrap at `2` or `3` lines, or `0` to hide the title bar
+  entirely (the `title` text itself is untouched, so switching back doesn't lose it). Omitted/`None`
+  behaves like `3` (the original auto 1→2→3-line behavior). Read by `ClipComposition.tsx`'s
+  `autoSplitTitle()`/`calcTitleBar()` and mirrored in `premiere_export.py`'s `_auto_split_title()` /
+  `_calc_title_bar_height()` / `split_geometry()`, since the title bar height feeds into the
+  split-mode panel boundary (`mainTop`) that both the Premiere export and the position picker rely on.
 - `captions` — list of `{text, startMs, endMs, effect?, isComment?}` relative to clip start. Not stored
   on the clip itself — `pipeline.make_captions()` rebuilds this fresh from the transcript segments
   (`*_full.json`) on every render. `effect` is auto-detected per segment

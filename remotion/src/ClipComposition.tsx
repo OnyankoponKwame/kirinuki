@@ -114,6 +114,10 @@ export const clipSchema = z.object({
     .optional()
     .describe("二段構成の上段高さ割合 (1〜9、0.5刻み、下段は 10-この値、デフォルト 4.5)"),
   title: z.string().describe("クリップタイトル（縦動画上部に常時表示）"),
+  titleMaxLines: z
+    .union([z.literal(0), z.literal(2), z.literal(3)])
+    .optional()
+    .describe("タイトルバーの最大行数（0=非表示, 2, 3。省略時は3）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
   cutIntervals: z
     .array(cutIntervalSchema)
@@ -253,7 +257,8 @@ function getEffectiveWidth(s: string): number {
 }
 
 // 1行に収まらない場合、2行分割または3行分割で最長行のemが最小になる分割点を探す
-function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number): string {
+// maxLines=2 のときは 3行分割を試さず、常に2行分割を採用する（収まらなければ calcTitleBar 側でフォントを縮小する）
+function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number, maxLines: 2 | 3 = 3): string {
   if (title.includes("\n")) return title;
   const totalEm = getEffectiveWidth(title);
   if (totalEm * maxFontPx <= usableWidth) return title;
@@ -270,8 +275,9 @@ function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number): 
     }
   }
 
-  // 2行分割でフォントサイズを縮小せずに収まる場合、または文字数が3文字未満の場合は2行分割を採用
-  if (best2Max * maxFontPx <= usableWidth || title.length < 3) {
+  // 2行分割でフォントサイズを縮小せずに収まる場合、文字数が3文字未満の場合、
+  // または2行までに制限されている場合は2行分割を採用
+  if (maxLines <= 2 || best2Max * maxFontPx <= usableWidth || title.length < 3) {
     return `${title.slice(0, best2Idx)}\n${title.slice(best2Idx)}`;
   }
 
@@ -436,6 +442,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
   mainCropY,
   splitTopRatio,
   title,
+  titleMaxLines,
   captions,
   cutIntervals,
   srcAspect,
@@ -526,10 +533,11 @@ export const ClipComposition: React.FC<ClipProps> = ({
     [effectiveCaptions],
   );
 
-  const displayTitle = useMemo(
-    () => (title ? autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140) : title),
-    [title, width],
-  );
+  const displayTitle = useMemo(() => {
+    if (titleMaxLines === 0) return "";
+    if (!title) return title;
+    return autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140, titleMaxLines === 2 ? 2 : 3);
+  }, [title, width, titleMaxLines]);
   const { titleBarHeight, titleFontSize } = calcTitleBar(
     displayTitle,
     width,
