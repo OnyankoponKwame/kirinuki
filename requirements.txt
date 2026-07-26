@@ -6,5 +6,3 @@ pydub==0.25.1
 groq==1.6.0
 google-genai==2.14.0
 requests==2.34.2
-pystray==0.19.5
-Pillow==11.1.0

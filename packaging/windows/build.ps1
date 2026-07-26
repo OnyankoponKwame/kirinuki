@@ -42,7 +42,7 @@ $AppDir     = Join-Path $StageRoot "app"
 $DownloadDir = Join-Path $DistRoot "_downloads"
 
 $PythonVersion = "3.12.7"
-$PythonZipUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
+$PythonZipUrl  = "https://www.nuget.org/api/v2/package/python/$PythonVersion"
 $GetPipUrl     = "https://bootstrap.pypa.io/get-pip.py"
 
 $NodeVersion   = "24.18.0"
@@ -61,22 +61,30 @@ function Download-File($Url, $OutFile) {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile
 }
 
-# ── 1. Embeddable Python + pip + requirements.txt ────────────────────────────
-Write-Host "== Python =="
+# ── 1. Full Python Runtime + pip + requirements.txt ───────────────────────────
+Write-Host "== Python (Full Runtime) =="
 $pythonDir = Join-Path $AppDir "python"
-$pythonZip = Join-Path $DownloadDir "python-embed.zip"
+$pythonZip = Join-Path $DownloadDir "python-full.zip"
 Download-File $PythonZipUrl $pythonZip
-Expand-Archive -Path $pythonZip -DestinationPath $pythonDir -Force
 
-# Embeddable Python disables `site` (and thus site-packages) by default via the
-# ._pth file — re-enable it so pip-installed packages are importable.
-$pthFile = Get-ChildItem -Path $pythonDir -Filter "python3*._pth" | Select-Object -First 1
-(Get-Content $pthFile.FullName) -replace '^#\s*import site', 'import site' | Set-Content $pthFile.FullName
-Add-Content $pthFile.FullName "`nLib\site-packages"
+$pythonExtractTmp = Join-Path $DownloadDir "python_extract"
+if (Test-Path $pythonExtractTmp) { Remove-Item -Recurse -Force $pythonExtractTmp }
+Expand-Archive -Path $pythonZip -DestinationPath $pythonExtractTmp -Force
+
+# Extract tools contents to app/python
+New-Item -ItemType Directory -Force -Path $pythonDir | Out-Null
+Copy-Item (Join-Path $pythonExtractTmp "tools\*") $pythonDir -Recurse -Force
+
+# Ensure site-packages path is set if ._pth file exists
+Get-ChildItem -Path $pythonDir -Filter "python3*._pth" -ErrorAction SilentlyContinue | ForEach-Object {
+    (Get-Content $_.FullName) -replace '^#\s*import site', 'import site' | Set-Content $_.FullName
+    Add-Content $_.FullName "`nLib\site-packages"
+}
 
 $getPip = Join-Path $DownloadDir "get-pip.py"
 Download-File $GetPipUrl $getPip
 Invoke-Checked "bootstrap pip" { & "$pythonDir\python.exe" $getPip --no-warn-script-location }
+
 
 Invoke-Checked "pip install -r requirements.txt" {
     & "$pythonDir\python.exe" -m pip install --no-warn-script-location --no-cache-dir -r "$RepoRoot\requirements.txt"

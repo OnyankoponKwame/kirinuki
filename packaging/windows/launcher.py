@@ -288,74 +288,8 @@ def _try_show_tkinter_manager(data_dir: Path) -> bool:
         return False
 
 
-def _try_show_pystray_manager(data_dir: Path) -> bool:
-    """pystrayを使用してシステムトレイ（タスクトレイ）に常駐し、メニューから各種サーバー操作を行えるようにする"""
-    try:
-        import pystray
-        from PIL import Image, ImageDraw
-    except ImportError as e:
-        _log(f"pystray module import failed: {e}")
-        return False
-
-    try:
-        icon_path = APP_ROOT / "icon.ico"
-        if icon_path.exists():
-            image = Image.open(icon_path)
-        else:
-            # 64x64 の緑丸アイコンを自動生成
-            image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(image)
-            draw.ellipse((8, 8, 56, 56), fill=(16, 124, 65))
-
-        def on_open_browser(icon, item):
-            webbrowser.open(f"http://{HOST}:{PORT}")
-
-        def on_open_install_dir(icon, item):
-            _open_folder(APP_ROOT)
-
-        def on_open_data_dir(icon, item):
-            _open_folder(data_dir)
-
-        def on_show_cookie_guide(icon, item):
-            _show_cookie_guide_dialog(data_dir)
-
-        def on_shutdown(icon, item):
-            icon.stop()
-
-        menu = pystray.Menu(
-            pystray.MenuItem(f"🟢 Kirinuki サーバー実行中 (http://{HOST}:{PORT})", lambda i, item: None, enabled=False),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("🌐 Web画面（ブラウザ）を開く", on_open_browser, default=True),
-            pystray.MenuItem("📁 インストールフォルダを開く", on_open_install_dir),
-            pystray.MenuItem("📂 データフォルダを開く (cookies.txt 保存先)", on_open_data_dir),
-            pystray.MenuItem("🍪 Cookieの手動保存手順を見る", on_show_cookie_guide),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("❌ Kirinuki サーバーを終了する", on_shutdown),
-        )
-
-        icon = pystray.Icon("Kirinuki", image, "Kirinuki サーバーマネージャー", menu)
-        _log("showing pystray server manager in system tray")
-
-        try:
-            icon.notify(
-                f"Kirinuki サーバーが起動しました。\nhttp://{HOST}:{PORT}",
-                "Kirinuki サーバーマネージャー"
-            )
-        except Exception:
-            pass
-
-        icon.run()
-        return True
-    except Exception as e:
-        _log(f"pystray manager failed: {e}")
-        return False
-
-
 def _show_server_manager(data_dir: Path) -> None:
-    """サーバーマネージャーUIを表示する（pystray -> Tkinter -> フォールバックの順に試行）"""
-    if _try_show_pystray_manager(data_dir):
-        return
-
+    """サーバーマネージャーUIを表示する（Tkinter GUI ウィンドウ -> フォールバックの順に試行）"""
     if _try_show_tkinter_manager(data_dir):
         return
 
