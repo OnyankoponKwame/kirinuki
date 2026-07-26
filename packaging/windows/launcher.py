@@ -197,7 +197,7 @@ def _try_show_tkinter_manager(data_dir: Path) -> bool:
         import tkinter as tk
         from tkinter import messagebox, ttk
     except Exception as e:
-        _log(f"Tkinter import failed: {e}")
+        _log(f"Tkinter import failed: {e}\n{traceback.format_exc()}")
         return False
 
     try:
