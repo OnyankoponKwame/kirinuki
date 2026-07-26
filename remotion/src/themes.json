@@ -1,8 +1,18 @@
 {
   "defaultThemeKey": "heisei_girl",
   "themes": {
+    "yumeno": {
+      "label": "yumeno",
+      "titleBackground": "linear-gradient(to right, #FF1493 0%, #B200FF 100%)",
+      "titleTextColor": "#FFFFFF",
+      "titleAccentColor": "#4A0E4E",
+      "captionTextColor": "#FFFFFF",
+      "captionActiveColor": "#fe27c8",
+      "captionActiveGlow": "rgba(254, 39, 200, 0.5)",
+      "captionFont": "mochiy"
+    },
     "heisei_girl": {
-      "label": "navi",
+      "label": "mizuiro",
       "titleBackground": "linear-gradient(135deg, #FF69B4 0%, #FFB6E6 40%, #B8F0FF 65%, #40E0D0 100%)",
       "titleTextColor": "#ffffff",
       "titleAccentColor": "#880055",

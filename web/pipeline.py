@@ -710,7 +710,7 @@ def run_transcription(
         from elevenlabs_transcribe import transcribe_with_elevenlabs
         keyterms_str = os.environ.get("ELEVENLABS_KEYTERMS")
         if keyterms_str is None:
-            keyterms_str = "飴白, 飴白なび"
+            keyterms_str = "徳川ゆめの, ゆめのん, 飴白, 飴白なび"
         keyterms_str = keyterms_str.replace("，", ",").replace("、", ",")
         keyterms = [k.strip() for k in keyterms_str.split(",") if k.strip()] if keyterms_str else None
         raw = transcribe_with_elevenlabs(

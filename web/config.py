@@ -161,7 +161,7 @@ def settings_status() -> dict[str, bool | str]:
     """Which keys are currently configured (via .env or config.json). Never leaks values."""
     keyterms = os.environ.get("ELEVENLABS_KEYTERMS")
     if keyterms is None:
-        keyterms = "飴白, 飴白なび"
+        keyterms = "徳川ゆめの, ゆめのん, 飴白, 飴白なび"
     return {
         "groq": bool(os.environ.get("GROQ_API_KEY")),
         "gemini": bool(os.environ.get("GEMINI_API_KEY")),
