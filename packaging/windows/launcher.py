@@ -401,9 +401,175 @@ def _try_show_taskdialog_manager(data_dir: Path) -> bool:
         return False
 
 
+def _try_show_native_win32_manager(data_dir: Path) -> bool:
+    """Win32 API (user32.dll) を直接使用し、すべてのWindows環境で確実に動作する専用GUIウィンドウを表示する"""
+    if sys.platform != "win32":
+        return False
+
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    gdi32 = ctypes.windll.gdi32
+
+    # Win32 関数シグネチャの定義
+    WNDPROC = ctypes.WINFUNCTYPE(
+        wintypes.LPARAM, wintypes.HWND, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM
+    )
+
+    class WNDCLASSEXW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.c_uint),
+            ("style", ctypes.c_uint),
+            ("lpfnWndProc", WNDPROC),
+            ("cbClsExtra", ctypes.c_int),
+            ("cbWndExtra", ctypes.c_int),
+            ("hInstance", wintypes.HINSTANCE),
+            ("hIcon", wintypes.HICON),
+            ("hCursor", wintypes.HCURSOR),
+            ("hbrBackground", wintypes.HBRUSH),
+            ("lpszMenuName", wintypes.LPCWSTR),
+            ("lpszClassName", wintypes.LPCWSTR),
+            ("hIconSm", wintypes.HICON),
+        ]
+
+    # Win32 定数
+    WS_CAPTION = 0x00C00000
+    WS_SYSMENU = 0x00080000
+    WS_MINIMIZEBOX = 0x00020000
+    WS_VISIBLE = 0x10000000
+    WS_CHILD = 0x40000000
+    BS_PUSHBUTTON = 0x00000000
+    SS_LEFT = 0x00000000
+    WM_DESTROY = 0x0002
+    WM_COMMAND = 0x0111
+    WM_SETFONT = 0x0030
+    COLOR_WINDOW = 5
+    DEFAULT_GUI_FONT = 17
+
+    # ボタンID
+    ID_BROWSER = 101
+    ID_INSTALL_DIR = 102
+    ID_DATA_DIR = 103
+    ID_COOKIE_GUIDE = 104
+    ID_SHUTDOWN = 105
+
+    try:
+        hinstance = kernel32.GetModuleHandleW(None)
+        hfont = gdi32.GetStockObject(DEFAULT_GUI_FONT)
+
+        def wnd_proc(hwnd, msg, wparam, lparam):
+            if msg == WM_COMMAND:
+                cmd_id = wparam & 0xFFFF
+                if cmd_id == ID_BROWSER:
+                    webbrowser.open(f"http://{HOST}:{PORT}")
+                elif cmd_id == ID_INSTALL_DIR:
+                    _open_folder(APP_ROOT)
+                elif cmd_id == ID_DATA_DIR:
+                    _open_folder(data_dir)
+                elif cmd_id == ID_COOKIE_GUIDE:
+                    _show_cookie_guide_dialog(data_dir)
+                elif cmd_id == ID_SHUTDOWN:
+                    user32.DestroyWindow(hwnd)
+                return 0
+            elif msg == WM_DESTROY:
+                user32.PostQuitMessage(0)
+                return 0
+            return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+        wndproc_cb = WNDPROC(wnd_proc)
+
+        class_name = "KirinukiServerManagerWindow"
+        wndclass = WNDCLASSEXW()
+        wndclass.cbSize = ctypes.sizeof(WNDCLASSEXW)
+        wndclass.style = 0
+        wndclass.lpfnWndProc = wndproc_cb
+        wndclass.cbClsExtra = 0
+        wndclass.cbWndExtra = 0
+        wndclass.hInstance = hinstance
+        wndclass.hIcon = user32.LoadIconW(None, ctypes.cast(32512, wintypes.LPCWSTR))  # IDI_APPLICATION
+        wndclass.hCursor = user32.LoadCursorW(None, ctypes.cast(32512, wintypes.LPCWSTR))  # IDC_ARROW
+        wndclass.hbrBackground = COLOR_WINDOW + 1
+        wndclass.lpszMenuName = None
+        wndclass.lpszClassName = class_name
+        wndclass.hIconSm = None
+
+        user32.RegisterClassExW(ctypes.byref(wndclass))
+
+        # ウィンドウサイズと画面中央配置
+        win_width, win_height = 460, 360
+        screen_w = user32.GetSystemMetrics(0)
+        screen_h = user32.GetSystemMetrics(1)
+        x = max(0, (screen_w - win_width) // 2)
+        y = max(0, (screen_h - win_height) // 2)
+
+        style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE
+        hwnd = user32.CreateWindowExW(
+            0,
+            class_name,
+            "Kirinuki サーバーマネージャー",
+            style,
+            x, y, win_width, win_height,
+            None, None, hinstance, None
+        )
+
+        if not hwnd:
+            return False
+
+        # コントロール作成ヘルパー
+        def create_control(class_name_ctrl, text, style_ctrl, x_c, y_c, w_c, h_c, ctrl_id=0):
+            h_ctrl = user32.CreateWindowExW(
+                0,
+                class_name_ctrl,
+                text,
+                WS_CHILD | WS_VISIBLE | style_ctrl,
+                x_c, y_c, w_c, h_c,
+                hwnd,
+                ctypes.c_void_p(ctrl_id),
+                hinstance,
+                None
+            )
+            if hfont:
+                user32.SendMessageW(h_ctrl, WM_SETFONT, hfont, 1)
+            return h_ctrl
+
+        # ヘッダーとステータス表示
+        create_control("STATIC", "🟢 Kirinuki サーバー実行中", SS_LEFT, 25, 18, 400, 22)
+        create_control("STATIC", f"サーバーアドレス: http://{HOST}:{PORT}", SS_LEFT, 25, 42, 400, 20)
+
+        # 操作ボタン
+        buttons_info = [
+            (ID_BROWSER, "🌐  Web画面（ブラウザ）を開く", 25, 75, 395, 38),
+            (ID_INSTALL_DIR, "📁  インストールフォルダを開く", 25, 122, 395, 38),
+            (ID_DATA_DIR, "📂  データフォルダを開く (cookies.txt 保存先)", 25, 169, 395, 38),
+            (ID_COOKIE_GUIDE, "🍪  Cookieの手動保存手順を見る", 25, 216, 395, 38),
+            (ID_SHUTDOWN, "❌  Kirinuki サーバーを終了する", 25, 263, 395, 38),
+        ]
+
+        for ctrl_id, label_text, bx, by, bw, bh in buttons_info:
+            create_control("BUTTON", label_text, BS_PUSHBUTTON, bx, by, bw, bh, ctrl_id)
+
+        _log("showing native Win32 server manager window")
+
+        # メッセージループ
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+
+        return True
+    except Exception as e:
+        _log(f"Native Win32 manager failed: {e}")
+        return False
+
+
 def _show_server_manager(data_dir: Path) -> None:
-    """サーバーマネージャーUIを表示する（Tkinter -> TaskDialogIndirect -> フォールバックの順に試行）"""
+    """サーバーマネージャーUIを表示する（Tkinter -> Native Win32 -> TaskDialogIndirect -> フォールバックの順に試行）"""
     if _try_show_tkinter_manager(data_dir):
+        return
+
+    if _try_show_native_win32_manager(data_dir):
         return
 
     if _try_show_taskdialog_manager(data_dir):
@@ -478,10 +644,9 @@ def main() -> None:
             _show_error(f"サーバーが{START_TIMEOUT_SEC:.0f}秒以内に起動しませんでした。")
         return
 
-    _log("server ready, opening browser and data directory")
+    _log("server ready, opening browser")
     webbrowser.open(f"http://{HOST}:{PORT}")
     data_dir = cfg.get_data_dir()
-    _open_folder(data_dir)
 
     # 常駐GUIマネージャーを表示
     _show_server_manager(data_dir)

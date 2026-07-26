@@ -131,13 +131,6 @@ try {
         throw "remotion missing from $remotionCheck after npm install"
     }
 
-    # Clean up node_modules unnecessary files to save installer space
-    Write-Host "  -> Cleaning up node_modules unnecessary files"
-    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "README*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "LICENSE*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Filter "CHANGELOG*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Directory -Filter "test" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path (Join-Path $AppDir "remotion\node_modules") -Recurse -Directory -Filter "tests" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
     # Headless Chromium (approx. 150MB-250MB) is omitted from the installer for size reduction.
     # Remotion will automatically download it on the first video render if internet is available.

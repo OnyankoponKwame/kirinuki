@@ -1084,8 +1084,13 @@ async function refreshFiles(selectId, type) {
 //   video:          "{stem}.mp4"
 //   transcription:  "{stem}_{yyyymmdd}_{hhmmss}_full.json"
 //   clips:          "clips_{stem}_{yyyymmdd}_{hhmmss}.json"
+function getBasename(path) {
+  if (!path) return '';
+  return path.split(/[/\\]/).pop();
+}
+
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function baseNameNoExt(name) { return name.replace(/\.[^./]+$/, ''); }
+function baseNameNoExt(name) { return getBasename(name).replace(/\.[^./]+$/, ''); }
 function transcriptionBase(transName) { return baseNameNoExt(transName).replace(/_full$/, ''); }
 function videoStemFromTranscriptionBase(base) { return base.replace(/_\d{8}_\d{6}$/, ''); }
 
@@ -1156,7 +1161,7 @@ async function initAllFileLists() {
 // ── Auto-populate downstream phase inputs ─────────────────────────────────
 async function propagate(video, transcription) {
   if (video) {
-    const name = video.split('/').pop().split('\\').pop();
+    const name = getBasename(video);
     phaseOut.video = name;
     await refreshFiles('p2-video', 'audio');
     await refreshFiles('p4-video', 'video');
@@ -1166,7 +1171,7 @@ async function propagate(video, transcription) {
     s4v.value = name;
   }
   if (transcription) {
-    const name = transcription.split('/').pop().split('\\').pop();
+    const name = getBasename(transcription);
     phaseOut.transcription = name;
     await refreshFiles('p3-trans', 'transcription');
     await refreshFiles('p4-trans', 'transcription');
@@ -1174,6 +1179,8 @@ async function propagate(video, transcription) {
     const s4t = document.getElementById('p4-trans');
     s3.value = name;
     s4t.value = name;
+    onP3TransChange();
+    onP4TransChange();
   }
 }
 
@@ -1268,10 +1275,10 @@ async function runPhase1(chatOnly = false) {
       if (msg.status === 'ready') {
         const chips = [];
         if (msg.video_path) {
-          chips.push(`<span class="result-chip">📁 ${escHtml(msg.video_path.split('/').pop())}</span>`);
+          chips.push(`<span class="result-chip">📁 ${escHtml(getBasename(msg.video_path))}</span>`);
         }
         if (msg.chat_path) {
-          const chatName = msg.chat_path.split('/').pop();
+          const chatName = getBasename(msg.chat_path);
           chips.push(`<span class="result-chip">💬 ${escHtml(chatName)}</span>`);
           // auto-populate phase 3 chat selector
           await refreshFiles('p3-chat', 'chat');
@@ -1348,13 +1355,15 @@ async function runPhase2() {
         document.getElementById('ph2-chunk-fill').style.width = '100%';
       }
       if (msg.transcription_path) {
-        const name = msg.transcription_path.split('/').pop();
+        const name = getBasename(msg.transcription_path);
         await refreshFiles('p3-trans', 'transcription');
         await refreshFiles('p4-trans', 'transcription');
         const s3 = document.getElementById('p3-trans');
         const s4 = document.getElementById('p4-trans');
         s3.value = name;
         s4.value = name;
+        onP3TransChange();
+        onP4TransChange();
         const chip = document.getElementById('ph2-result');
         chip.innerHTML = `<span class="result-chip">📄 ${escHtml(name)}</span>`;
         chip.hidden = false;
@@ -1419,7 +1428,7 @@ async function runPhase3() {
       if (msg.status === 'ready' && msg.clips) {
         phaseOut.clipsData = msg.clips;
         const chip = document.getElementById('ph3-result');
-        const clipsFileName = msg.clips_path ? msg.clips_path.split('/').pop() : null;
+        const clipsFileName = msg.clips_path ? getBasename(msg.clips_path) : null;
         chip.innerHTML = `<span class="result-chip">🎬 ${msg.clips.length} 件のクリップを提案</span>`
           + (clipsFileName ? ` <span class="result-chip">📄 ${escHtml(clipsFileName)}</span>` : '');
         chip.hidden = false;
