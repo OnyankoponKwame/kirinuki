@@ -239,7 +239,78 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
 .concat-handle { color: var(--muted); font-size: 16px; line-height: 1; flex-shrink: 0; }
 .concat-name { flex: 1; font-size: 12px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .concat-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 0 2px; line-height: 1; transition: color .1s; }
-.concat-remove:hover { color: var(--red-strong); }
+/* ── Drop Zone Component ── */
+.drop-hint-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(255, 127, 176, 0.12);
+  border: 1px solid rgba(255, 127, 176, 0.25);
+  padding: 2px 8px;
+  border-radius: 12px;
+  animation: pulse-glow 2.5s infinite;
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 127, 176, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 127, 176, 0); }
+}
+.drop-zone-area {
+  position: relative;
+  border: 2px dashed rgba(255, 127, 176, 0.4);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.drop-zone-area:hover, .drop-zone-area.dragover {
+  border-color: var(--accent);
+  background: rgba(255, 127, 176, 0.08);
+  box-shadow: 0 4px 16px rgba(255, 127, 176, 0.15);
+}
+.drop-zone-area.dragover {
+  border-style: solid;
+  transform: scale(1.008);
+}
+.drop-zone-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.drop-icon-wrapper {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 127, 176, 0.15);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+.drop-zone-area:hover .drop-icon-wrapper {
+  transform: translateY(-2px) scale(1.05);
+}
+.drop-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.drop-primary-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.drop-sub-text {
+  font-size: 11px;
+  color: var(--muted);
+}
 
 /* ── Drop overlay ── */
 #drop-overlay {
@@ -528,7 +599,29 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
   </div>
   <div class="phase-body">
     <div class="field">
-      <label>動画 / 音声ファイル</label>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label style="margin-bottom:0">動画 / 音声ファイル</label>
+        <span class="drop-hint-badge">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+          ドラッグ＆ドロップ対応
+        </span>
+      </div>
+      <div class="drop-zone-area" id="p2-drop-zone" onclick="document.getElementById('p2-file-input').click()">
+        <input type="file" id="p2-file-input" hidden accept=".mp4,.flac,.mp3,.wav,.mov,.mkv" onchange="handleP2FileInput(this)">
+        <div class="drop-zone-content">
+          <div class="drop-icon-wrapper">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="drop-text-group">
+            <span class="drop-primary-text">ここに動画 / 音声ファイルをドラッグ＆ドロップ</span>
+            <span class="drop-sub-text">またはクリックしてファイルを選択 (mp4, flac, mp3, wav, mov, mkv)</span>
+          </div>
+        </div>
+      </div>
       <div class="file-wrap">
         <select id="p2-video"><option value="">-- 選択してください --</option></select>
         <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p2-video','audio')">↺</button>
@@ -2698,10 +2791,33 @@ document.addEventListener('dragleave', () => {
 
 document.addEventListener('dragover', e => { e.preventDefault(); });
 
+function handleP2FileInput(input) {
+  if (input.files && input.files[0]) {
+    uploadVideoFile(input.files[0]);
+    input.value = '';
+  }
+}
+
+const p2DropZone = document.getElementById('p2-drop-zone');
+if (p2DropZone) {
+  p2DropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    p2DropZone.classList.add('dragover');
+  });
+  p2DropZone.addEventListener('dragleave', e => {
+    e.preventDefault();
+    p2DropZone.classList.remove('dragover');
+  });
+  p2DropZone.addEventListener('drop', e => {
+    p2DropZone.classList.remove('dragover');
+  });
+}
+
 document.addEventListener('drop', async e => {
   e.preventDefault();
   dragCounter = 0;
   overlay.classList.remove('active');
+  if (p2DropZone) p2DropZone.classList.remove('dragover');
 
   const files = Array.from(e.dataTransfer.files).filter(isVideoFile);
   if (files.length === 0) return;
