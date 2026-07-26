@@ -42,7 +42,7 @@ $AppDir     = Join-Path $StageRoot "app"
 $DownloadDir = Join-Path $DistRoot "_downloads"
 
 $PythonVersion = "3.12.7"
-$PythonZipUrl  = "https://www.nuget.org/api/v2/package/python/$PythonVersion"
+$PythonExeUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-amd64.exe"
 $GetPipUrl     = "https://bootstrap.pypa.io/get-pip.py"
 
 $NodeVersion   = "24.18.0"
@@ -61,36 +61,18 @@ function Download-File($Url, $OutFile) {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile
 }
 
-# ── 1. Full Python Runtime + pip + requirements.txt ───────────────────────────
-Write-Host "== Python (Full Runtime) =="
+# ── 1. Official Python Installer -> TargetDir ─────────────────────────────────
+Write-Host "== Python (Official Installer) =="
 $pythonDir = Join-Path $AppDir "python"
-$pythonZip = Join-Path $DownloadDir "python-full.zip"
-Download-File $PythonZipUrl $pythonZip
+$pythonExe = Join-Path $DownloadDir "python-installer.exe"
+Download-File $PythonExeUrl $pythonExe
 
-$pythonExtractTmp = Join-Path $DownloadDir "python_extract"
-if (Test-Path $pythonExtractTmp) { Remove-Item -Recurse -Force $pythonExtractTmp }
-Expand-Archive -Path $pythonZip -DestinationPath $pythonExtractTmp -Force
-
-# Extract tools contents to app/python
-New-Item -ItemType Directory -Force -Path $pythonDir | Out-Null
-Copy-Item (Join-Path $pythonExtractTmp "tools\*") $pythonDir -Recurse -Force
-
-# Write complete sys.path setup into ._pth file so DLLs, Lib, and site-packages are all loaded
-Get-ChildItem -Path $pythonDir -Filter "python3*._pth" -ErrorAction SilentlyContinue | ForEach-Object {
-    Set-Content $_.FullName "python312.zip`n.`nDLLs`nLib`nLib\site-packages`nimport site" -Encoding utf8
-}
-
-# Copy DLLs from DLLs/ to python root so Windows DLL loader finds tcl86t.dll/tk86t.dll/_tkinter.pyd instantly
-$pythonDllsDir = Join-Path $pythonDir "DLLs"
-if (Test-Path $pythonDllsDir) {
-    Get-ChildItem -Path $pythonDllsDir -Filter "*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $pythonDir -Force
-    Get-ChildItem -Path $pythonDllsDir -Filter "*.pyd" -ErrorAction SilentlyContinue | Copy-Item -Destination $pythonDir -Force
-}
-
-# Copy bundled Tkinter standard library files to app/python/Lib/tkinter
-$bundledTkinter = Join-Path $PSScriptRoot "Lib\tkinter"
-if (Test-Path $bundledTkinter) {
-    Copy-Item $bundledTkinter (Join-Path $pythonDir "Lib\tkinter") -Recurse -Force
+# TargetDir にサイレント展開 (レジストリやシステム PATH を汚さずにアプリフォルダへポータブル展開)
+Invoke-Checked "Install Python to target directory" {
+    $proc = Start-Process -FilePath $pythonExe -ArgumentList "/quiet", "TargetDir=`"$pythonDir`"", "Include_tcltk=1", "Include_pip=1", "Include_test=0", "Include_doc=0", "AssociateFiles=0", "ShortPaths=0", "CompileAll=0" -PassThru -Wait
+    if ($proc.ExitCode -ne 0) {
+        throw "Python installer failed with exit code $($proc.ExitCode)"
+    }
 }
 
 $getPip = Join-Path $DownloadDir "get-pip.py"
