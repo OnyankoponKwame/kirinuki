@@ -117,7 +117,7 @@ export const clipSchema = z.object({
   titleMaxLines: z
     .union([z.literal(0), z.literal(2), z.literal(3)])
     .optional()
-    .describe("タイトルバーの最大行数（0=非表示, 2, 3。省略時は3）"),
+    .describe("タイトルバーの最大行数（0=非表示, 2, 3。省略時は2）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
   cutIntervals: z
     .array(cutIntervalSchema)
@@ -536,7 +536,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
   const displayTitle = useMemo(() => {
     if (titleMaxLines === 0) return "";
     if (!title) return title;
-    return autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140, titleMaxLines === 2 ? 2 : 3);
+    return autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140, titleMaxLines === 3 ? 3 : 2);
   }, [title, width, titleMaxLines]);
   const { titleBarHeight, titleFontSize } = calcTitleBar(
     displayTitle,

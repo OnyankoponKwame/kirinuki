@@ -186,44 +186,48 @@ def _bucket_chat_counts(entries: list[tuple[float, str]], window_sec: float) -> 
     return buckets, avg_count, threshold
 
 
-def chat_activity_buckets(chat_path: Path, window_sec: float = 30.0) -> list[dict]:
-    """Per-window chat message counts for the ③切り抜き提案 activity chart
-    (web/static/index.html's chat activity bar chart).
+def _detect_chat_reactions(messages: list[str]) -> list[str]:
+    """Rough keyword-based reaction tagging for a spike range's messages."""
+    text_concat = " ".join(messages).lower()
+    reactions = []
+    # 笑い (w, 草, 笑)
+    if any(w in text_concat for w in ["w", "草", "笑"]):
+        reactions.append("笑い(草/w)")
+    # 拍手・賞賛 (👏, 8888, ナイス, GJ, うまい, すごい, 神...)
+    if any(w in text_concat for w in [
+        "👏", "888", "おめ", "さす", "流石", "ナイス", "nice", "gj",
+        "グッジョブ", "うまい", "うまっ", "すご", "すげ", "神", "いいね",
+    ]):
+        reactions.append("拍手/賞賛(👏/ナイス)")
+    # 驚き (!?、え、まじ)
+    if any(w in text_concat for w in ["!?", "！？", "え", "は？", "まじ", "マジ", "うそ", "嘘"]):
+        reactions.append("驚き(!?/えっ)")
+    # 悲鳴・絶叫・危機 (ぎゃー、きゃー、やば、こわ)
+    if any(w in text_concat for w in ["ぎゃ", "きゃ", "やば", "ヤバ", "こわ", "怖", "たすけ", "助け", "無理", "むり"]):
+        reactions.append("悲鳴/パニック(やばい/悲鳴)")
+    return reactions
 
-    This is a separate read of the same chat file already used by
-    suggest_clips_from_result() (which independently reads the raw entries and
-    analyze_chat_spikes()'s text report to build the Gemini prompt) — the chart
-    doesn't add or change what gets sent to Gemini, it just visualizes the same
-    spike signal analyze_chat_spikes() already feeds into that prompt.
+
+def _detect_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> list[dict]:
+    """Detect chat-density spike ranges with their messages/reactions/ratio.
+
+    Shared by analyze_chat_spikes() (the text report sent to Gemini by
+    suggest_clips_from_result()) and chat_activity() (the ③切り抜き提案 activity
+    chart's spike detail list) so the two always describe the exact same ranges —
+    the chart is a view onto the same analysis already used for clip suggestion,
+    not a separate computation.
     """
-    entries = _read_chat_entries(chat_path)
-    if not entries or max(t for t, _ in entries) <= 0:
-        return []
-    buckets, _avg_count, threshold = _bucket_chat_counts(entries, window_sec)
-    return [
-        {"t": idx * window_sec, "count": count, "spike": count >= threshold}
-        for idx, count in enumerate(buckets)
-    ]
-
-
-def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> str:
-    """Analyze chat density spikes and generate a report of hyped time ranges."""
     if not entries:
-        return ""
-
-    # 1. 30秒ごとのバケットに集計
+        return []
     max_time = max(t for t, _ in entries)
     if max_time <= 0:
-        return ""
+        return []
 
     buckets, avg_count, threshold = _bucket_chat_counts(entries, window_sec)
 
-    # 4. スパイク区間の検出
-    spikes = []
+    bucket_ranges: list[tuple[int, int]] = []
     in_spike = False
-    spike_start = 0
-    spike_end = 0
-
+    spike_start = spike_end = 0
     for idx, count in enumerate(buckets):
         if count >= threshold:
             if not in_spike:
@@ -232,42 +236,65 @@ def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
             spike_end = idx
         else:
             if in_spike:
-                spikes.append((spike_start * window_sec, (spike_end + 1) * window_sec))
+                bucket_ranges.append((spike_start, spike_end))
                 in_spike = False
     if in_spike:
-        spikes.append((spike_start * window_sec, (spike_end + 1) * window_sec))
+        bucket_ranges.append((spike_start, spike_end))
 
-    if not spikes:
-        return "（顕著なチャットの盛り上がり区間は検出されませんでした）"
-
-    # 5. 各区間の詳細分析（盛り上がり倍率、リアクションの傾向）
-    report_lines = ["### 自動分析されたチャット盛り上がり時間帯（コメント急増区間）:"]
-    for start, end in spikes[:15]:  # 最大15個に制限
-        # 区間内のチャットメッセージを取得
+    result = []
+    for start_idx, end_idx in bucket_ranges[:15]:  # 最大15個に制限
+        start, end = start_idx * window_sec, (end_idx + 1) * window_sec
         messages = [text for t, text in entries if start <= t < end]
         count = len(messages)
         ratio = count / (avg_count * ((end - start) / window_sec)) if avg_count > 0 else 0
+        result.append({
+            "start": start,
+            "end": end,
+            "count": count,
+            "ratio": ratio,
+            "reactions": _detect_chat_reactions(messages),
+            "messages": messages,
+        })
+    return result
 
-        # 主なリアクションの集計
-        reactions = []
-        text_concat = " ".join(messages).lower()
-        
-        # 笑い (w, 草, 笑)
-        if any(w in text_concat for w in ["w", "草", "笑"]):
-            reactions.append("笑い(草/w)")
-        # 拍手 (👏, 8888)
-        if any(w in text_concat for w in ["👏", "888", "おめ", "さす", "流石"]):
-            reactions.append("拍手/賞賛(👏/888)")
-        # 驚き (!?、え、まじ)
-        if any(w in text_concat for w in ["!?", "！？", "え", "は？", "まじ", "マジ", "うそ", "嘘"]):
-            reactions.append("驚き(!?/えっ)")
-        # 悲鳴・絶叫・危機 (ぎゃー、きゃー、やば、こわ)
-        if any(w in text_concat for w in ["ぎゃ", "きゃ", "やば", "ヤバ", "こわ", "怖", "たすけ", "助け", "無理", "むり"]):
-            reactions.append("悲鳴/パニック(やばい/悲鳴)")
 
-        reaction_str = "、".join(reactions) if reactions else "一般的な会話"
+def chat_activity(chat_path: Path, window_sec: float = 30.0) -> dict:
+    """Full chat-activity payload for the ③切り抜き提案 activity chart
+    (web/static/index.html): per-window counts for the bar chart, plus the
+    detected spike ranges (with their actual messages) for the expandable spike
+    detail list. Both are derived from _detect_chat_spikes()/_bucket_chat_counts(),
+    the same analysis analyze_chat_spikes() already turns into the text report
+    suggest_clips_from_result() sends to Gemini — this just makes it visible.
+    """
+    entries = _read_chat_entries(chat_path)
+    if not entries or max(t for t, _ in entries) <= 0:
+        return {"buckets": [], "spikes": []}
+    buckets, _avg_count, threshold = _bucket_chat_counts(entries, window_sec)
+    bucket_list = [
+        {"t": idx * window_sec, "count": count, "spike": count >= threshold}
+        for idx, count in enumerate(buckets)
+    ]
+    return {"buckets": bucket_list, "spikes": _detect_chat_spikes(entries, window_sec)}
+
+
+def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> str:
+    """Analyze chat density spikes and generate a report of hyped time ranges."""
+    if not entries:
+        return ""
+    max_time = max(t for t, _ in entries)
+    if max_time <= 0:
+        return ""
+
+    spikes = _detect_chat_spikes(entries, window_sec)
+    if not spikes:
+        return "（顕著なチャットの盛り上がり区間は検出されませんでした）"
+
+    report_lines = ["### 自動分析されたチャット盛り上がり時間帯（コメント急増区間）:"]
+    for sp in spikes:
+        reaction_str = "、".join(sp["reactions"]) if sp["reactions"] else "一般的な会話"
         report_lines.append(
-            f"- [{start:.1f}s - {end:.1f}s] (コメント密度: 通常の {ratio:.1f}倍) - 主なリアクション: {reaction_str}"
+            f"- [{sp['start']:.1f}s - {sp['end']:.1f}s] (コメント密度: 通常の {sp['ratio']:.1f}倍) "
+            f"- 主なリアクション: {reaction_str}"
         )
 
     return "\n".join(report_lines)
@@ -978,7 +1005,11 @@ def suggest_clips_from_result(
     chat_path: Path | None,
     extra_prompt: str | None = None,
     gemini_model: str | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], str]:
+    """Returns (clips, chat_report) — chat_report is analyze_chat_spikes()'s text
+    report (empty string if there's no chat), the same text folded into the Gemini
+    prompt below, surfaced so the caller can show the user what was actually
+    analyzed (see web/app.py's job["chat_analysis"])."""
     segments = result.get("segments", [])
     if segments:
         transcript_text = "\n".join(
@@ -989,6 +1020,7 @@ def suggest_clips_from_result(
         transcript_text = result.get("text", "")
 
     chat_section = ""
+    spike_report = ""
     if chat_path and chat_path.exists():
         entries = _read_chat_entries(chat_path)  # 全件読み込み
         if entries:
@@ -1044,7 +1076,7 @@ def suggest_clips_from_result(
         if "verticalMode" not in clip:
             clip["verticalMode"] = "split"
 
-    return enrich_clip_caption_effects(clips, segments)
+    return enrich_clip_caption_effects(clips, segments), spike_report
 
 
 # ── Silence cut ───────────────────────────────────────────────────────────────

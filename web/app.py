@@ -167,6 +167,7 @@ def _new_job(req: "StartReq") -> str:
         "video_path": None,
         "transcription_path": None,
         "chat_path": None,
+        "chat_analysis": None,
         "clips_path": None,
         "rendered": [],
         "error": None,
@@ -342,7 +343,7 @@ def _run_pipeline(job_id: str) -> None:
             job["stage"] = "suggesting"
             log("▶ Asking Gemini for clip suggestions...")
             assert result is not None
-            job["clips"] = pl.suggest_clips_from_result(
+            job["clips"], job["chat_analysis"] = pl.suggest_clips_from_result(
                 result, chat_path, job.get("_extra_prompt"), job.get("_gemini_model")
             )
             clips_file = pl.save_clips(job["clips"], t_path)
@@ -558,7 +559,7 @@ async def job_events(jid: str):
             for text in job["logs"][cursor:]:
                 yield f"data: {json.dumps({'type': 'log', 'text': text})}\n\n"
                 cursor += 1
-            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect'), 'export': job.get('export')})}\n\n"
+            yield f"data: {json.dumps({'type': 'state', 'status': job['status'], 'stage': job['stage'], 'clips': job['clips'], 'rendered': job['rendered'], 'error': job['error'], 'video_path': job['video_path'], 'transcription_path': job['transcription_path'], 'chat_path': job.get('chat_path'), 'chat_analysis': job.get('chat_analysis'), 'clips_path': job.get('clips_path'), 'src_aspect': job.get('src_aspect'), 'export': job.get('export')})}\n\n"
             if job["status"] in terminal:
                 break
             await asyncio.sleep(0.5 if job["status"] != "ready" else 1.5)
@@ -791,7 +792,7 @@ class SplitGeometryReq(BaseModel):
     title: str = ""
     splitTopRatio: float = 4.5
     theme: str | None = None
-    titleMaxLines: int = 3
+    titleMaxLines: int = 2
 
 
 @app.post("/api/split-geometry")
@@ -912,15 +913,16 @@ def video_frame(video: str = Query(...), t: float = Query(0.0)):
 
 @app.get("/api/chat-activity")
 def chat_activity(chat: str = Query(...)):
-    """Per-30s chat message counts for the ③切り抜き提案 activity chart, computed
-    on demand and never persisted (see pipeline.chat_activity_buckets()). The
-    selected chat file itself is already sent to Gemini via
-    suggest_clips_from_result() regardless of whether this chart is viewed."""
+    """Per-30s chat message counts plus detected spike ranges (with their actual
+    messages) for the ③切り抜き提案 activity chart, computed on demand and never
+    persisted (see pipeline.chat_activity()). This is a view onto the same
+    analyze_chat_spikes() analysis suggest_clips_from_result() already sends to
+    Gemini for the selected chat file — see job["chat_analysis"] for that text."""
     import pipeline as pl
     path = _resolve(Path(chat).name, DOWNLOADS_DIR)
     if not path.exists():
         raise HTTPException(404, f"チャットファイルが見つかりません: {path.name}")
-    return {"buckets": pl.chat_activity_buckets(path)}
+    return pl.chat_activity(path)
 
 
 @app.get("/api/clips/{filename}")

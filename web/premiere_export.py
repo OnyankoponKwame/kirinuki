@@ -61,7 +61,7 @@ def _effective_width(s: str) -> float:
     return sum(0.55 if ord(ch) < 256 else 1.0 for ch in s)
 
 
-def _auto_split_title(title: str, usable_width: float, max_lines: int = 3) -> str:
+def _auto_split_title(title: str, usable_width: float, max_lines: int = 2) -> str:
     if "\n" in title:
         return title
     total_em = _effective_width(title)
@@ -93,7 +93,7 @@ def _auto_split_title(title: str, usable_width: float, max_lines: int = 3) -> st
 
 
 def _calc_title_bar_height(
-    title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H, max_lines: int = 3
+    title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H, max_lines: int = 2
 ) -> int:
     if not title or max_lines == 0:
         return 0
@@ -190,7 +190,7 @@ def split_geometry(
     seq_h: int = 1920,
     safe_top_ratio: float = SHORTS_SAFE_TOP_RATIO,
     title_bar_min_height: int = MIN_TITLE_BAR_H,
-    title_max_lines: int = 3,
+    title_max_lines: int = 2,
 ) -> SplitGeometry:
     """Split-mode panel bounds — mirrors ClipComposition.tsx's 二段構成モード block.
 
@@ -255,7 +255,7 @@ def compute_layers(clip: dict, src_aspect: float, theme: dict | None = None) -> 
     top_margin = theme.get("titleTopMargin")
     safe_top_ratio = (top_margin / 100) if top_margin is not None else SHORTS_SAFE_TOP_RATIO
     title_bar_min_height = theme.get("titleBarMinHeight") or MIN_TITLE_BAR_H
-    title_max_lines = 3 if clip.get("titleMaxLines") is None else int(clip["titleMaxLines"])
+    title_max_lines = 2 if clip.get("titleMaxLines") is None else int(clip["titleMaxLines"])
     geo = split_geometry(
         str(clip.get("title", "")), float(clip.get("splitTopRatio", 4.5) or 4.5), seq_w, seq_h,
         safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,

@@ -206,7 +206,7 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
 - `titleMaxLines` — caps the title bar's auto-wrap at `2` or `3` lines, or `0` to hide the title bar
   entirely (the `title` text itself is untouched, so switching back doesn't lose it). Omitted/`None`
-  behaves like `3` (the original auto 1→2→3-line behavior). Read by `ClipComposition.tsx`'s
+  behaves like `2` (also the web UI's default for new clips). Read by `ClipComposition.tsx`'s
   `autoSplitTitle()`/`calcTitleBar()` and mirrored in `premiere_export.py`'s `_auto_split_title()` /
   `_calc_title_bar_height()` / `split_geometry()`, since the title bar height feeds into the
   split-mode panel boundary (`mainTop`) that both the Premiere export and the position picker rely on.
