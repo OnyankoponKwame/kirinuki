@@ -7,7 +7,6 @@ YouTube のライブ配信・アーカイブから、面白い場面を自動で
 
 までを 1 つの画面で行えます。
 
-<!-- 画像: アプリ全体のスクリーンショット -->
 
 ## できること
 
@@ -116,6 +115,9 @@ YouTube の URL を入力すると、動画本体とライブチャットのロ�
 Remotion Studio を開いて、そこで直接修正できます。修正のしかたと、修正後の書き出し方法（Studio
 自身の Render 機能を使います）は下の「Remotion Studio の使い方」を参照してください。
 
+<img width="864" height="264" alt="image" src="https://github.com/user-attachments/assets/db996162-9988-4541-ab8c-0c0f43e7d60c" />
+
+
 #### 「編集用に書き出し」か「レンダリング」かを選ぶ
 
 表示範囲などの調整が済んだら、目的に応じて選びます（Studio で直接修正して書き出した場合は、
@@ -145,7 +147,8 @@ Remotion Studio は、このアプリが動画を作るのに使っている描�
 アプリのクリップカードはあくまで簡易的な見た目なので、本番と全く同じ映像を見ながら、字幕のタイミング
 やフレーム単位の位置ズレなど、アプリの操作だけでは直しきれない細かい部分を直接修正できます。
 
-<!-- 画像: Remotion Studio 画面全体 -->
+<img width="1689" height="1117" alt="image" src="https://github.com/user-attachments/assets/74af7c5b-f995-4b2a-b893-2e85891cdbb6" />
+
 
 1. ④レンダリングの画面で確認したいクリップにチェックを入れ、「🎬 Studio で確認」を押します。
 2. 準備ができると通知バナーが表示されるので、「🚀 Studio を開く」から新しいタブで開きます。
@@ -180,7 +183,3 @@ Remotion Studio は、このアプリが動画を作るのに使っている描�
 | `clips/` | 「▶ レンダリング」で作った完成動画 |
 | `exports/` | 「📦 編集用に書き出し」の ZIP（mp4 + SRT） |
 | `remotion/out/` | Remotion Studio の Render 機能で書き出した動画（トレイの「🎬 Remotion（動画出力先）を開く」） |
-
----
-
-開発者向けのセットアップ手順やアーキテクチャの詳細は [CLAUDE.md](./CLAUDE.md) を参照してください。
