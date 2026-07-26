@@ -2656,8 +2656,32 @@ async function openInStudio() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Studio 起動中...';
 
-  // ポップアップブロックを防止するため、クリックの直後（非同期fetchの前）にタブを空で開く
+  // ポップアップブロックを防止するため、クリックの直後（非同期fetchの前）にタブを開きローディング案内を表示
   const studioTab = window.open('about:blank', 'remotion-studio');
+  if (studioTab && studioTab.document) {
+    try {
+      studioTab.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Remotion Studio 起動中...</title>
+  <style>
+    body { background: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .spin { width: 44px; height: 44px; border: 4px solid rgba(255,255,255,0.1); border-left-color: #ec4899; border-radius: 50%; animation: s 1s linear infinite; margin-bottom: 20px; }
+    @keyframes s { to { transform: rotate(360deg); } }
+    h2 { margin: 0 0 8px 0; font-size: 20px; font-weight: 600; }
+    p { margin: 0; color: #94a3b8; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="spin"></div>
+  <h2>🎬 Remotion Studio を起動しています...</h2>
+  <p>準備ができるまでそのままお待ちください</p>
+</body>
+</html>`);
+      studioTab.document.close();
+    } catch (_) {}
+  }
 
   try {
     const res = await fetch('/api/studio/open', {

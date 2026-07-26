@@ -81,6 +81,13 @@ Get-ChildItem -Path $pythonDir -Filter "python3*._pth" -ErrorAction SilentlyCont
     Add-Content $_.FullName "`nLib\site-packages"
 }
 
+# Copy DLLs from DLLs/ to python root so Windows DLL loader finds tcl86t.dll/tk86t.dll/_tkinter.pyd instantly
+$pythonDllsDir = Join-Path $pythonDir "DLLs"
+if (Test-Path $pythonDllsDir) {
+    Get-ChildItem -Path $pythonDllsDir -Filter "*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $pythonDir -Force
+    Get-ChildItem -Path $pythonDllsDir -Filter "*.pyd" -ErrorAction SilentlyContinue | Copy-Item -Destination $pythonDir -Force
+}
+
 $getPip = Join-Path $DownloadDir "get-pip.py"
 Download-File $GetPipUrl $getPip
 Invoke-Checked "bootstrap pip" { & "$pythonDir\python.exe" $getPip --no-warn-script-location }
@@ -140,9 +147,8 @@ try {
     }
 
 
-    # Headless Chromium (approx. 150MB-250MB) is omitted from the installer for size reduction.
-    # Remotion will automatically download it on the first video render if internet is available.
-    # & $npxCmd remotion browser ensure
+    # Bundle Headless Chromium so Studio and rendering do not download it on first launch.
+    Invoke-Checked "remotion browser ensure" { & $npxCmd remotion browser ensure }
 } finally {
     Pop-Location
 }
