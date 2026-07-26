@@ -80,28 +80,66 @@ to agree to the pixel (SSIM 0.98 against a Remotion still of the same frame; ±1
 offset drops it to 0.97).
 
 `split_geometry()` (the safe-area / title-bar / two-panel split) is factored out of
-`compute_layers()` because the face-position picker needs the bottom panel's height too —
+`compute_layers()` because the position picker needs the panel heights *and* `mainTop` too —
 see the next section.
 
-### Face-position picker (split mode's bottom panel)
-`cropX` / `faceCamZoom` / `faceCamY` are hard to set blind, so the clip card has a
-「🎯 静止画から顔位置を指定」 button (split mode only — in crop mode the same three fields
-mean different things). It opens a still from the source video, the user drags a box around
-the face, and `fitFaceCam()` in `web/static/index.html` solves ClipComposition's bottom-panel
-equations backwards for the three values, choosing the tightest zoom that still contains the
-box and never one that would leave a black edge.
+### Position picker (both vertical modes)
+Framing values are hard to set blind, so the clip card has a
+「🎯 静止画から位置・ズームを指定」 button (any vertical clip). It opens a still from the source
+video and the user drags a box on it; the picker solves ClipComposition's equations backwards
+for that surface's three values, choosing the tightest zoom that still contains the box and
+never one that would leave a black edge.
+
+What can be picked depends on the clip's `verticalMode`. In **split mode** the dialog shows a
+tab per panel; in **crop mode** there is a single surface and the tab row is hidden:
+
+| tab | props | surface |
+|---|---|---|
+| 上段（全体映像） | `mainZoom` / `mainCropX` / `mainCropY` | panel of height `mainH` |
+| 下段（顔カメラ） | `faceCamZoom` / `cropX` / `faceCamY` | panel of height `bottomH` |
+| 表示範囲 (crop) | `faceCamZoom` / `cropX` / `faceCamY` | the whole 9:16 frame |
+
+The two split panels are the *same* equations differing only in the panel height, so
+`fitPanel()` / `panelWindow()` take `panelH` and return generic `{zoom, x, y}`. **Crop mode is
+not**: its zoom is relative to the full `seqH`, and its `left` is "fraction of the horizontal
+overflow hidden on the left" rather than split mode's "source x that lands at the panel
+centre" — hence the separate `fitCrop()` / `cropWindow()`. The mapping from generic
+`{zoom, x, y}` back to prop names, slider selectors and labels, plus which fit/window pair to
+use, lives in the `FACE_PANELS` table; the picker itself knows nothing else about the three
+surfaces. Each tab keeps its own selection, so one still can set both split panels, and
+「適用」 writes whichever tabs were drawn on.
+
+Crop mode's extra wrinkle is that the **title bar is drawn over the video**, so a box fitted to
+the full frame could land behind it. `fitCrop()` therefore fits the box into the frame *below*
+`mainTop` (safe area + title bar), which also gives zoom a lower bound: the top of the box can
+only clear the bar at `zoom ≥ mainTop / (rect.y * seqH)`, so boxing something high in the frame
+legitimately forces a tighter zoom (at `rect.y → 0` it is unreachable and the zoom pins to 8).
+When a constraint stops the box from fitting exactly, the dialog says so under the values, the
+band the title bar covers is drawn on both the preview and the still, and the visible window is
+aligned to the box's top rather than centred so the subject's head is not the part that gets
+cut.
+
+Because `cropX` / `faceCamZoom` / `faceCamY` mean different things in the two modes,
+「すべてのクリップに適用」 only writes to cards in the *same* mode as the one the picker was
+opened from.
 
 Two endpoints back it:
 - `GET /api/frame?video=&t=` — one JPEG via ffmpeg, downscaled to ≤1280px wide.
 - `POST /api/split-geometry` — `{title, splitTopRatio}` → panel bounds, from
-  `premiere_export.split_geometry()`. The browser cannot derive `bottomH` itself: it depends
-  on the title bar, whose height only that module's port of `calcTitleBar()` knows.
+  `premiere_export.split_geometry()`. The browser cannot derive `mainH` / `bottomH` / `mainTop`
+  itself: they depend on the title bar, whose height only that module's port of `calcTitleBar()`
+  knows. (Crop mode only needs `mainTop`, which does not depend on `splitTopRatio`.)
 
-`faceCamWindow()` next to `fitFaceCam()` is a **fourth copy** of the bottom-panel framing
-formula, deliberately kept so the picker's preview and dashed overlay show exactly what will
-be rendered. It is verified to agree with `compute_layers()` bit-for-bit, so it inherits that
-function's pixel-level agreement with Remotion — but it is one more place to update when the
-TSX's 二段構成モード block changes.
+`panelWindow()` / `cropWindow()` next to the fit functions are a **fourth copy** of the framing
+formulas, deliberately kept so the picker's preview and dashed overlay show exactly what will be
+rendered. Both are verified to agree with `compute_layers()` bit-for-bit for all three surfaces,
+so they inherit that function's pixel-level agreement with Remotion — but they are one more
+place to update when the TSX's 二段構成モード / クロップモード blocks change.
+
+Two things the fits deliberately do *not* do: return a zoom below 1 (that would letterbox the
+surface) even though the sliders allow down to 0.5 — a manual-only setting the preview still
+displays faithfully — and chase sub-percent accuracy, since `cropX` and the rest are integer
+percent sliders (the box can land up to half a step off, ~0.5% of the frame).
 
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).

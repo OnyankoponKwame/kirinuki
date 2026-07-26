@@ -15,9 +15,10 @@ from typing import Callable
 import config as cfg
 import theme_store
 
-# Model used for clip suggestion (suggest_clips_from_result). Transcription does not
-# use Gemini — see run_transcription()'s "groq" / "elevenlabs" branches.
-GEMINI_MODEL_ID = "gemini-3.5-flash-lite"
+# Models selectable for clip suggestion (suggest_clips_from_result). Transcription does
+# not use Gemini — see run_transcription()'s "groq" / "elevenlabs" branches.
+GEMINI_SUGGEST_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
+GEMINI_MODEL_ID = GEMINI_SUGGEST_MODELS[0]  # default
 
 PROJECT_DIR = Path(__file__).parent.parent
 AUDIO_DIR = PROJECT_DIR / "audio-chunking"
@@ -299,10 +300,26 @@ def save_chat(chat_path: Path, transcription_path: Path) -> Path:
 
 # ── Download ──────────────────────────────────────────────────────────────────
 
+# yt-dlp の進捗行 ([download] ...) と、--print で出力させる最終ファイルパスを
+# 混同しないための目印。進捗行にも ".mp4" で終わるものがあるため必要。
+FILEPATH_MARKER = "@@KIRINUKI_FILEPATH@@"
+
+# ダウンロード画質。キーは API / UI から来る文字列で、値は yt-dlp の -f 式の高さ上限。
+# 未知の値が -f にそのまま渡らないよう、必ずこの表を経由して解決する。
+VIDEO_QUALITIES = {"720": 720, "1080": 1080}
+DEFAULT_VIDEO_QUALITY = "1080"
+
+
+def _format_selector(quality: str) -> str:
+    height = VIDEO_QUALITIES.get(quality, VIDEO_QUALITIES[DEFAULT_VIDEO_QUALITY])
+    return f"bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+
+
 def download_video(
     url: str,
     output_dir: Path,
     log: Callable[[str], None],
+    quality: str = DEFAULT_VIDEO_QUALITY,
 ) -> tuple[Path, Path | None]:
     output_dir.mkdir(exist_ok=True)
     template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
@@ -315,8 +332,10 @@ def download_video(
     else:
         js_runtime_args = ["--js-runtimes", "node"]
 
-    cookies_path = cfg.get_data_dir() / "cookies.txt"
-    # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
+    cookies_dir = cfg.get_data_dir()
+    cookies_path = cfg.find_cookies_file(cookies_dir) or (cookies_dir / "cookies.txt")
+    # cookies.txt相当のファイル（"127.0.0.1_cookies.txt" 等、末尾一致で検出）が存在すれば、
+    # ロックを避けるためにそれを優先使用する。
     # 存在しなければ、最初はクッキーなしでダウンロードを試みる。
     if cookies_path.exists():
         cookie_args = ["--cookies", str(cookies_path)]
@@ -331,12 +350,180 @@ def download_video(
     cmd = [
         "yt-dlp",
     ] + js_runtime_args + cookie_args + ffmpeg_args + [
-        "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "-f", _format_selector(quality),
         "--merge-output-format", "mp4",
         "--write-subs",
         "--sub-langs", "live_chat",
         "--newline",
-        "--print", "after_move:filepath",
+        # --print は暗黙的に --quiet を有効にする (yt_dlp/__init__.py:
+        # `opts.quiet = ... or bool(opts.forceprint)`)。その結果 noprogress も True になり、
+        # [download] 行が一切出力されず UI の進捗バーが動かなくなる。
+        # --no-quiet / --progress で明示的に打ち消す。
+        "--no-quiet",
+        "--progress",
+        # 既定 (0秒) だと毎秒数十行が SSE ログに流れ込むので 1秒間隔に間引く
+        "--progress-delta", "1",
+        "--print", f"after_move:{FILEPATH_MARKER}%(filepath)s",
+        "-o", template,
+        url,
+    ]
+
+    cookie_error_detected = False
+    stdout_lines: list[str] = []
+    filepaths: list[str] = []
+
+    def consume(proc: subprocess.Popen) -> None:
+        """yt-dlp の出力を1行ずつログに流しつつ、filepath とクッキーエラーを拾う。"""
+        nonlocal cookie_error_detected
+        assert proc.stdout
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            if line.startswith(FILEPATH_MARKER):
+                path = line[len(FILEPATH_MARKER):]
+                filepaths.append(path)
+                log(path)
+                continue
+            log(line)
+            stdout_lines.append(line)
+            # クッキーのロックエラーや未検出を検知
+            if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
+                cookie_error_detected = True
+        proc.wait()
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        **cfg.no_window_kwargs(),
+    )
+
+    consume(proc)
+
+    # 失敗した時のハンドリング
+    if proc.returncode != 0:
+        bot_error_detected = any(
+            any(kw in line.lower() for kw in ["confirm you are not a bot", "sign in", "cookie", "bot", "captcha", "forbidden"])
+            for line in stdout_lines
+        )
+
+        retry_cmd = None
+        # 1. もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
+        if cookies_path.exists() and "--cookies" in cmd and "--cookies-from-browser" not in cmd:
+            log("保存されたクッキーでのダウンロードに失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
+            retry_cmd = []
+            for arg in cmd:
+                if arg == str(cookies_path):
+                    retry_cmd.append(arg)
+                    continue
+                if arg == "--cookies":
+                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
+                    continue
+                retry_cmd.append(arg)
+        # 2. もしクッキーなしで失敗し、かつボットエラーが検出された場合は、Chromeからのクッキー取得を試みてリトライします
+        elif not cookies_path.exists() and "--cookies" not in cmd and bot_error_detected:
+            log("クッキーなしでのダウンロードに失敗しました。YouTubeの制限回避のため、Chromeからクッキーを取得してリトライします...")
+            retry_cmd = cmd.copy()
+            # 動画URL(cmd[-1])の手前にクッキー引数を挿入する
+            insert_idx = len(retry_cmd) - 1
+            retry_cmd[insert_idx:insert_idx] = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
+
+        if retry_cmd:
+            proc = subprocess.Popen(
+                retry_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                **cfg.no_window_kwargs(),
+            )
+            stdout_lines.clear()
+            filepaths.clear()
+            consume(proc)
+
+        # クッキーのロックエラー（ブラウザ起動中）で失敗した場合
+        if proc.returncode != 0 and cookie_error_detected:
+            if cookies_path.exists():
+                try:
+                    cookies_path.unlink()
+                except OSError:
+                    pass
+            raise RuntimeError(
+                "ダウンロードに失敗しました。YouTubeのボット制限を回避するためにクッキーが必要ですが、Chromeが起動中のためアクセスできません。"
+                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください（次回以降はChromeを開いたままでも動作します）。"
+            )
+
+    if proc.returncode != 0:
+        raise RuntimeError("yt-dlp failed — check the URL and network connection")
+
+    if filepaths:
+        video_path = Path(filepaths[-1])
+    else:
+        # --print が出なかった場合の保険。進捗ログ ([download] Destination: xxx.f303.mp4 など)
+        # を拾わないよう、"[" で始まらない裸のパス行だけを見る。
+        mp4_lines = [l for l in stdout_lines if l.endswith(".mp4") and not l.startswith("[")]
+        if not mp4_lines:
+            raise RuntimeError("Could not find downloaded mp4 in yt-dlp output")
+        video_path = Path(mp4_lines[-1])
+
+    if not video_path.exists():
+        try:
+            files = list(video_path.parent.glob("*"))
+            log(f"Debug: Output directory contains {len(files)} files:")
+            for f in files:
+                log(f"  - {f.name}")
+        except Exception as e:
+            log(f"Debug: Failed to list files: {e}")
+        raise RuntimeError(f"Downloaded file missing: {video_path}")
+
+    chat_path = video_path.with_suffix("").with_suffix(".live_chat.json")
+    if not chat_path.exists():
+        return video_path, None
+    slim_live_chat(chat_path, log)
+    return video_path, chat_path
+
+
+# ── Download chat only ────────────────────────────────────────────────────────
+
+def download_chat_only(
+    url: str,
+    output_dir: Path,
+    log: Callable[[str], None],
+) -> Path | None:
+    output_dir.mkdir(exist_ok=True)
+    template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
+
+    # Windowsのパッケージ版ではNode.jsが同梱されているため、yt-dlpにそのパスを明示的に伝える
+    js_runtime_args = []
+    packaged_node = PROJECT_DIR / "node" / "node.exe"
+    if packaged_node.exists():
+        js_runtime_args = ["--js-runtimes", f"node:{packaged_node}"]
+    else:
+        js_runtime_args = ["--js-runtimes", "node"]
+
+    cookies_dir = cfg.get_data_dir()
+    cookies_path = cfg.find_cookies_file(cookies_dir) or (cookies_dir / "cookies.txt")
+    # cookies.txt相当のファイル（"127.0.0.1_cookies.txt" 等、末尾一致で検出）が存在すれば、
+    # ロックを避けるためにそれを優先使用する。
+    # 存在しなければ、最初はクッキーなしでダウンロードを試みる。
+    if cookies_path.exists():
+        cookie_args = ["--cookies", str(cookies_path)]
+    else:
+        cookie_args = []
+
+    ffmpeg_args = []
+    bin_dir = PROJECT_DIR / "bin"
+    if (bin_dir / "ffmpeg.exe").exists() or (bin_dir / "ffmpeg").exists():
+        ffmpeg_args = ["--ffmpeg-location", str(bin_dir)]
+
+    cmd = [
+        "yt-dlp",
+    ] + js_runtime_args + cookie_args + ffmpeg_args + [
+        "--skip-download",
+        "--write-subs",
+        "--sub-langs", "live_chat",
+        "--newline",
         "-o", template,
         url,
     ]
@@ -374,7 +561,7 @@ def download_video(
         retry_cmd = None
         # 1. もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
         if cookies_path.exists() and "--cookies" in cmd and "--cookies-from-browser" not in cmd:
-            log("保存されたクッキーでのダウンロードに失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
+            log("保存されたクッキーでのチャット取得に失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
             retry_cmd = []
             for arg in cmd:
                 if arg == str(cookies_path):
@@ -386,149 +573,13 @@ def download_video(
                 retry_cmd.append(arg)
         # 2. もしクッキーなしで失敗し、かつボットエラーが検出された場合は、Chromeからのクッキー取得を試みてリトライします
         elif not cookies_path.exists() and "--cookies" not in cmd and bot_error_detected:
-            log("クッキーなしでのダウンロードに失敗しました。YouTubeの制限回避のため、Chromeからクッキーを取得してリトライします...")
+            log("クッキーなしでのチャット取得に失敗しました。YouTubeの制限回避のため、Chromeからクッキーを取得してリトライします...")
             retry_cmd = cmd.copy()
             # 動画URL(cmd[-1])の手前にクッキー引数を挿入する
             insert_idx = len(retry_cmd) - 1
-            retry_cmd.insert(insert_idx, "--cookies")
-            retry_cmd.insert(insert_idx, str(cookies_path))
-            retry_cmd.insert(insert_idx, "chrome")
-            retry_cmd.insert(insert_idx, "--cookies-from-browser")
+            retry_cmd[insert_idx:insert_idx] = ["--cookies-from-browser", "chrome", "--cookies", str(cookies_path)]
 
         if retry_cmd:
-            proc = subprocess.Popen(
-                retry_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                **cfg.no_window_kwargs(),
-            )
-            stdout_lines = []
-            assert proc.stdout
-            for line in proc.stdout:
-                line = line.rstrip()
-                if line:
-                    log(line)
-                    stdout_lines.append(line)
-                    if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
-                        cookie_error_detected = True
-            proc.wait()
-
-        # クッキーのロックエラー（ブラウザ起動中）で失敗した場合
-        if proc.returncode != 0 and cookie_error_detected:
-            if cookies_path.exists():
-                try:
-                    cookies_path.unlink()
-                except OSError:
-                    pass
-            raise RuntimeError(
-                "ダウンロードに失敗しました。YouTubeのボット制限を回避するためにクッキーが必要ですが、Chromeが起動中のためアクセスできません。"
-                "一度Chromeブラウザを完全に閉じた状態で、再度実行してください（次回以降はChromeを開いたままでも動作します）。"
-            )
-
-    if proc.returncode != 0:
-        raise RuntimeError("yt-dlp failed — check the URL and network connection")
-
-    mp4_lines = [l for l in stdout_lines if l.endswith(".mp4")]
-    if not mp4_lines:
-        raise RuntimeError("Could not find downloaded mp4 in yt-dlp output")
-
-    video_path = Path(mp4_lines[-1])
-    if not video_path.exists():
-        try:
-            files = list(video_path.parent.glob("*"))
-            log(f"Debug: Output directory contains {len(files)} files:")
-            for f in files:
-                log(f"  - {f.name}")
-        except Exception as e:
-            log(f"Debug: Failed to list files: {e}")
-        raise RuntimeError(f"Downloaded file missing: {video_path}")
-
-    chat_path = video_path.with_suffix("").with_suffix(".live_chat.json")
-    if not chat_path.exists():
-        return video_path, None
-    slim_live_chat(chat_path, log)
-    return video_path, chat_path
-
-
-# ── Download chat only ────────────────────────────────────────────────────────
-
-def download_chat_only(
-    url: str,
-    output_dir: Path,
-    log: Callable[[str], None],
-) -> Path | None:
-    output_dir.mkdir(exist_ok=True)
-    template = str(output_dir / "%(title).80s_%(id)s.%(ext)s")
-
-    # Windowsのパッケージ版ではNode.jsが同梱されているため、yt-dlpにそのパスを明示的に伝える
-    js_runtime_args = []
-    packaged_node = PROJECT_DIR / "node" / "node.exe"
-    if packaged_node.exists():
-        js_runtime_args = ["--js-runtimes", f"node:{packaged_node}"]
-    else:
-        js_runtime_args = ["--js-runtimes", "node"]
-
-    cookies_path = cfg.get_data_dir() / "cookies.txt"
-    # cookies.txtが存在すれば、ロックを避けるためにそれを優先使用する。
-    # 存在しなければ、最初はクッキーなしでダウンロードを試みる。
-    if cookies_path.exists():
-        cookie_args = ["--cookies", str(cookies_path)]
-    else:
-        cookie_args = []
-
-    ffmpeg_args = []
-    bin_dir = PROJECT_DIR / "bin"
-    if (bin_dir / "ffmpeg.exe").exists() or (bin_dir / "ffmpeg").exists():
-        ffmpeg_args = ["--ffmpeg-location", str(bin_dir)]
-
-    cmd = [
-        "yt-dlp",
-    ] + js_runtime_args + cookie_args + ffmpeg_args + [
-        "--skip-download",
-        "--write-subs",
-        "--sub-langs", "live_chat",
-        "--newline",
-        "-o", template,
-        url,
-    ]
-
-    cookie_error_detected = False
-
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        **cfg.no_window_kwargs(),
-    )
-
-    assert proc.stdout
-    for line in proc.stdout:
-        line = line.rstrip()
-        if line:
-            log(line)
-            # クッキーのロックエラーや未検出を検知
-            if "cookie" in line.lower() and ("could not copy" in line.lower() or "error" in line.lower() or "failed" in line.lower()):
-                cookie_error_detected = True
-
-    proc.wait()
-
-    # 失敗した時のハンドリング
-    if proc.returncode != 0:
-        # もしキャッシュされたcookies.txtを使用して失敗した場合は、最新のクッキーをブラウザから再取得してキャッシュ更新を試みます
-        if cookies_path.exists() and "--cookies-from-browser" not in cmd:
-            log("保存されたクッキーでのチャット取得に失敗しました。最新のクッキーをブラウザから再取得して更新を試みます...")
-            retry_cmd = []
-            for arg in cmd:
-                if arg == str(cookies_path):
-                    retry_cmd.append(arg)
-                    continue
-                if arg == "--cookies":
-                    retry_cmd.extend(["--cookies-from-browser", "chrome", "--cookies"])
-                    continue
-                retry_cmd.append(arg)
-
             proc = subprocess.Popen(
                 retry_cmd,
                 stdout=subprocess.PIPE,
@@ -847,7 +898,10 @@ def enrich_clip_caption_effects(clips: list[dict], segments: list[dict]) -> list
 # ── Suggest clips ─────────────────────────────────────────────────────────────
 
 def suggest_clips_from_result(
-    result: dict, chat_path: Path | None, extra_prompt: str | None = None
+    result: dict,
+    chat_path: Path | None,
+    extra_prompt: str | None = None,
+    gemini_model: str | None = None,
 ) -> list[dict]:
     segments = result.get("segments", [])
     if segments:
@@ -889,7 +943,7 @@ def suggest_clips_from_result(
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model=GEMINI_MODEL_ID,
+        model=gemini_model or GEMINI_MODEL_ID,
         contents=[prompt],
         config=types.GenerateContentConfig(
             max_output_tokens=8192,
@@ -1150,11 +1204,89 @@ def remap_captions_to_cuts(
 
 # ── Render ────────────────────────────────────────────────────────────────────
 
+# Max characters per karaoke-active caption token — see split_captions_for_karaoke().
+CAPTION_CHUNK_CHARS = 6
+_CAPTION_BREAK_CHARS = set("、。！？・…♪")
+_CAPTION_SOKUON = set("っッ")  # attaches to the character that follows it
+_CAPTION_SMALL_KANA = set("ぁぃぅぇぉゃゅょゎァィゥェォャュョヮー")  # attaches to what precedes it
+
+
+def _chunk_caption_text(text: str, max_chars: int = CAPTION_CHUNK_CHARS) -> list[str]:
+    """Split text into a few small pieces, breaking preferentially at punctuation
+    and otherwise every `max_chars` characters, then repairing any boundary that
+    would strand a small kana that phonetically attaches to a neighboring
+    character (see split_captions_for_karaoke() for why this exists)."""
+    if not text:
+        return []
+    raw: list[str] = []
+    buf = ""
+    for ch in text:
+        buf += ch
+        if ch in _CAPTION_BREAK_CHARS or len(buf) >= max_chars:
+            raw.append(buf)
+            buf = ""
+    if buf:
+        raw.append(buf)
+
+    chunks: list[str] = []
+    for piece in raw:
+        if chunks and piece[0] in _CAPTION_SMALL_KANA:
+            chunks[-1] += piece
+        elif chunks and chunks[-1][-1] in _CAPTION_SOKUON:
+            chunks[-1] += piece
+        else:
+            chunks.append(piece)
+    return chunks
+
+
+def split_captions_for_karaoke(captions: list[dict]) -> list[dict]:
+    """Subdivide make_captions() output into smaller consecutive tokens so
+    CaptionPage's karaoke active-word highlight has more than one token per page
+    to alternate between. Without this, most captions (91%+ of segments in a
+    typical transcript, at an average 8.5 characters) are short enough to become
+    a single token that's "active" for its entire on-screen time — so the
+    highlight color never contrasts against the normal one, and captions read as
+    permanently "emphasized". There's no real word-level ASR timing to split on
+    (elevenlabs_transcribe.py's _words_to_segments() discards it), so timings
+    here are interpolated proportionally by character position instead — the
+    same approximation make_captions() already used for its one long-segment
+    split.
+
+    Only for the Remotion render path (see render_clip()). premiere_export.py
+    calls make_captions() directly, unsplit, so exported SRT subtitle lines stay
+    one-per-original-segment and readable rather than fragmenting into
+    one-cue-per-word.
+    """
+    out: list[dict] = []
+    for cap in captions:
+        text = str(cap.get("text", ""))
+        had_leading_space = text.startswith(" ")
+        chunks = _chunk_caption_text(text.lstrip(" "))
+        if not chunks:
+            out.append(cap)
+            continue
+        start_ms, end_ms = cap["startMs"], cap["endMs"]
+        total_chars = sum(len(c) for c in chunks)
+        offset = 0
+        for i, chunk_text in enumerate(chunks):
+            piece_start = start_ms + (end_ms - start_ms) * (offset / total_chars)
+            offset += len(chunk_text)
+            piece_end = start_ms + (end_ms - start_ms) * (offset / total_chars)
+            out.append({
+                **cap,
+                "text": (" " if i == 0 and had_leading_space else "") + chunk_text,
+                "startMs": piece_start,
+                "endMs": piece_end,
+            })
+    return out
+
+
 def make_captions(
     segments: list[dict],
     start_sec: float,
     end_sec: float,
     default_effect: str | None = None,
+    effects_enabled: bool = True,
 ) -> list[dict]:
     captions = []
     for seg in segments:
@@ -1167,7 +1299,7 @@ def make_captions(
         if not text:
             continue
 
-        effect = detect_effect_for_segment(seg)
+        effect = detect_effect_for_segment(seg) if effects_enabled else ""
         is_comment = bool(seg.get("is_comment"))
 
         if len(text) >= 18:
@@ -1225,6 +1357,7 @@ def render_clip(
     safe += f"_{int(start_sec)}"
 
     video_abs = video_path.resolve()
+    effects_enabled = bool(clip.get("captionEffectsEnabled", True))
 
     props_data: dict = {
         "videoSrc": video_abs.name,
@@ -1235,17 +1368,19 @@ def render_clip(
         "cropX": crop_x,
         "faceCamZoom": float(clip.get("faceCamZoom", 2.0)),
         "faceCamY": float(clip.get("faceCamY", 100)),
-        "splitTopRatio": int(clip.get("splitTopRatio", 5)),
+        "splitTopRatio": float(clip.get("splitTopRatio", 4.5)),
         "mainZoom": float(clip.get("mainZoom", 1.0)),
         "mainCropX": float(clip.get("mainCropX", 50)),
         "mainCropY": float(clip.get("mainCropY", 50)),
         "title": clip.get("title", ""),
-        "captions": make_captions(segments, start_sec, end_sec, clip.get("captionEffect")),
+        "captions": split_captions_for_karaoke(
+            make_captions(segments, start_sec, end_sec, clip.get("captionEffect"), effects_enabled=effects_enabled)
+        ),
         "srcAspect": clip.get("srcAspect", src_aspect),
     }
     if clip.get("captionFontSize"):
         props_data["captionFontSize"] = int(clip["captionFontSize"])
-    if clip.get("captionEffect") in CAPTION_EFFECTS:
+    if effects_enabled and clip.get("captionEffect") in CAPTION_EFFECTS:
         props_data["captionEffect"] = clip["captionEffect"]
     if clip.get("captionFont"):
         props_data["captionFont"] = clip["captionFont"]

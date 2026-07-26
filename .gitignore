@@ -17,6 +17,7 @@ web/default_config.json
 # ── ローカル実行時に生成される設定データ（config.py / theme_store.py が get_data_dir() に書く） ──
 config.json
 custom_themes.json
+themes_store.json
 
 # ── Remotion 生成物 ───────────────────────────────────────────────────────────
 remotion/node_modules/

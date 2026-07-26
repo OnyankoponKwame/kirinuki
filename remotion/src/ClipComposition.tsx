@@ -57,6 +57,9 @@ const themeColorsSchema = z.object({
   captionActiveColor: z.string(),
   captionActiveGlow: z.string(),
   captionFont: z.enum(CAPTION_FONT_KEYS).optional(),
+  titleFont: z.enum(CAPTION_FONT_KEYS).optional(),
+  titleBarMinHeight: z.number().min(150).max(600).optional(),
+  titleTopMargin: z.number().min(0).max(20).optional(),
 });
 
 export const clipSchema = z.object({
@@ -108,7 +111,7 @@ export const clipSchema = z.object({
     .min(1)
     .max(9)
     .optional()
-    .describe("二段構成の上段高さ割合 (1〜9、下段は 10-この値、デフォルト 5)"),
+    .describe("二段構成の上段高さ割合 (1〜9、0.5刻み、下段は 10-この値、デフォルト 4.5)"),
   title: z.string().describe("クリップタイトル（縦動画上部に常時表示）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
   cutIntervals: z
@@ -268,7 +271,7 @@ function autoSplitTitle(title: string, usableWidth: number, maxFontPx: number): 
 
 const MIN_TITLE_BAR_H = 280;
 
-function calcTitleBar(title: string, containerWidth: number) {
+function calcTitleBar(title: string, containerWidth: number, minBarHeight: number = MIN_TITLE_BAR_H) {
   if (!title) return { titleBarHeight: 0, titleFontSize: 0 };
   const lines = title.split("\n");
   const usableWidth = containerWidth - TITLE_H_PADDING * 2;
@@ -278,7 +281,7 @@ function calcTitleBar(title: string, containerWidth: number) {
   const autoWrapLines = Math.ceil((effectiveLongest * titleFontSize) / usableWidth);
   const estimatedLines = Math.max(lines.length, autoWrapLines, 2);
   const titleBarHeight = Math.max(
-    MIN_TITLE_BAR_H,
+    minBarHeight,
     Math.round(titleFontSize * 1.2 * estimatedLines + VERTICAL_PADDING * 2),
   );
   return { titleBarHeight, titleFontSize };
@@ -349,6 +352,7 @@ function TitleBar({
   theme: ClipTheme;
   topOffset?: number;
 }) {
+  const fontPreset = CAPTION_FONT_PRESETS[theme.titleFont ?? "rounded"];
   return (
     <AbsoluteFill
       style={{ justifyContent: "flex-start", alignItems: "center", pointerEvents: "none" }}
@@ -370,9 +374,9 @@ function TitleBar({
       >
         <div
           style={{
-            fontFamily: '"Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif',
+            fontFamily: fontPreset.family,
             fontSize: titleFontSize,
-            fontWeight: 900,
+            fontWeight: fontPreset.weight,
             color: theme.titleTextColor,
             WebkitTextStroke: `5px ${theme.titleAccentColor}`,
             textShadow: `8px 8px 0px ${theme.titleAccentColor}`,
@@ -499,10 +503,16 @@ export const ClipComposition: React.FC<ClipProps> = ({
     () => (title ? autoSplitTitle(title, width - TITLE_H_PADDING * 2, 140) : title),
     [title, width],
   );
-  const { titleBarHeight, titleFontSize } = calcTitleBar(displayTitle, width);
+  const { titleBarHeight, titleFontSize } = calcTitleBar(
+    displayTitle,
+    width,
+    theme?.titleBarMinHeight ?? MIN_TITLE_BAR_H,
+  );
 
-  // ショート動画の上下5%セーフエリア（サムネイルクロップ対策）
-  const shortsSafeTop = isVertical ? Math.round(height * 0.05) : 0;
+  // ショート動画のセーフエリア（サムネイルクロップ対策、既定 5%）。テーマで調整可能。
+  const shortsSafeTop = isVertical
+    ? Math.round(height * ((theme?.titleTopMargin ?? 5) / 100))
+    : 0;
 
   // ── Panic vignette (text effects are handled in CaptionPage) ─────────────
   const currentMs = (frame / fps) * 1000;
@@ -562,7 +572,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
   } else {
     // 縦動画: 二段構成モード
     const mainVideoTop = shortsSafeTop + titleBarHeight;
-    const topRatio = splitTopRatio ?? 5;
+    const topRatio = splitTopRatio ?? 4.5;
     const mainVideoH = Math.round((height - mainVideoTop) * topRatio / 10);
     const bottomTop = mainVideoTop + mainVideoH;
     const bottomH = height - bottomTop;

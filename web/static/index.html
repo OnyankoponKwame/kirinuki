@@ -172,6 +172,34 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .clip-foot { display: flex; justify-content: flex-end; }
 
+/* ── Segmented toggle (used for vertical-mode radios, mirrors #global-orientation-toggle) ── */
+.seg-toggle { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opt {
+  position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; padding: 7px 4px; font-size: 12px; font-weight: 600; color: var(--muted);
+  background: var(--surface); cursor: pointer; text-align: center; transition: background .15s, color .15s;
+}
+.seg-opt:not(:last-child) { border-right: 1px solid var(--border); }
+.seg-opt input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.seg-opt:has(input:checked) { background: var(--accent); color: var(--text); }
+.seg-opt-sub { font-size: 10px; font-weight: 400; opacity: .7; }
+
+/* ── Detail-panel grouped sub-sections (上段/下段) ── */
+.detail-subpanel {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.detail-subpanel-hd { font-size: 11px; color: var(--muted); font-weight: 700; }
+
+/* ── Global (all-clips) render settings bar ── */
+.gs-title { font-size: 12px; font-weight: 700; color: var(--text); }
+.gs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px,1fr)); gap: 16px 20px; margin-top: 8px; }
+.gs-field-label { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.gs-field-label b { color: var(--text); }
+.gs-slider-row { display: flex; align-items: center; gap: 6px; }
+.gs-slider-row .gs-hint { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.gs-slider-row input[type=range] { flex: 1; min-width: 0; }
+
 /* ── Downloads ── */
 .dl-list { display: flex; flex-direction: column; gap: 8px; }
 .dl-item { display: flex; align-items: center; gap: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; }
@@ -287,8 +315,18 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <div class="field">
         <label>タイトル背景（CSS の background 値。単色 / グラデーションどちらも指定可）</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="color" id="te-bg-color1" value="#ff1493" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション開始色">
-          <input type="color" id="te-bg-color2" value="#b200ff" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション終了色">
+          <input type="color" id="te-bg-color1" value="#ff1493" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション開始色" oninput="applyGradientPreset()">
+          <input type="color" id="te-bg-color2" value="#b200ff" style="width:38px;height:34px;padding:2px;flex-shrink:0" title="グラデーション終了色" oninput="applyGradientPreset()">
+          <select id="te-bg-pattern" onchange="applyGradientPreset()" style="font-size:11px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);flex-shrink:0">
+            <option value="linear-h">横方向</option>
+            <option value="linear-v">縦方向</option>
+            <option value="linear-diag1">斜め（↘）</option>
+            <option value="linear-diag2">斜め（↗）</option>
+            <option value="linear-3stop">3色ミックス（横）</option>
+            <option value="radial-center">放射状（中央）</option>
+            <option value="radial-left">放射状（左寄り）</option>
+            <option value="conic">カラフル（円錐）</option>
+          </select>
           <button type="button" class="btn-secondary" style="font-size:11px;padding:6px 10px;flex-shrink:0" onclick="applyGradientPreset()">→ 反映</button>
           <input type="text" id="te-bg" style="flex:1">
         </div>
@@ -306,22 +344,47 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
           <input type="range" id="te-glow-alpha" min="0" max="100" value="50" style="flex:1">
         </div>
       </div>
-      <div class="field">
-        <label>字幕フォント</label>
-        <select id="te-caption-font" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
-          <option value="mochiy">Mochiy Pop</option>
-          <option value="rounded">丸ゴ太字</option>
-          <option value="gothic">Noto極太</option>
-          <option value="pop">M PLUSポップ</option>
-          <option value="impact">デラ極太</option>
-          <option value="retro">ロックンロール</option>
-          <option value="mincho">明朝デコ</option>
-          <option value="comment">コメント風</option>
-        </select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>タイトルフォント</label>
+          <select id="te-title-font" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
+            <option value="mochiy">Mochiy Pop</option>
+            <option value="rounded">丸ゴ太字</option>
+            <option value="gothic">Noto極太</option>
+            <option value="pop">M PLUSポップ</option>
+            <option value="impact">デラ極太</option>
+            <option value="retro">ロックンロール</option>
+            <option value="mincho">明朝デコ</option>
+            <option value="comment">コメント風</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>字幕フォント</label>
+          <select id="te-caption-font" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
+            <option value="mochiy">Mochiy Pop</option>
+            <option value="rounded">丸ゴ太字</option>
+            <option value="gothic">Noto極太</option>
+            <option value="pop">M PLUSポップ</option>
+            <option value="impact">デラ極太</option>
+            <option value="retro">ロックンロール</option>
+            <option value="mincho">明朝デコ</option>
+            <option value="comment">コメント風</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>タイトルバーの高さ <span style="opacity:.7">（最低 <b id="te-title-bar-h-val">280</b>px、文字が収まらない場合は自動拡大）</span></label>
+          <input type="range" id="te-title-bar-height" min="150" max="500" step="10" value="280" style="width:100%">
+        </div>
+        <div class="field">
+          <label>タイトル上部の余白 <span style="opacity:.7">（画面高さの <b id="te-title-margin-val">5</b>%）</span></label>
+          <input type="range" id="te-title-margin" min="0" max="15" step="0.5" value="5" style="width:100%">
+        </div>
       </div>
       <div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">プレビュー</div>
-        <div id="theme-preview" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#151015"></div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">プレビュー（実際のショート動画レイアウトを再現）</div>
+        <div id="theme-preview" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#151015;display:flex;justify-content:center;padding:12px"></div>
       </div>
       <div id="theme-editor-status" style="font-size:12px;color:var(--red-strong)"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px">
@@ -335,12 +398,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
 <div id="face-overlay" style="position:fixed;inset:0;z-index:10000;background:rgba(74,53,64,.45);display:none;align-items:center;justify-content:center">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:900px;max-width:94vw;max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <h2 style="font-size:16px">下段の顔位置を指定</h2>
+      <h2 style="font-size:16px">静止画から切り抜き範囲を指定</h2>
       <button class="btn-secondary" onclick="closeFacePicker()">閉じる</button>
     </div>
-    <div style="font-size:12px;color:var(--muted)">
-      静止画の上で顔を囲むようにドラッグしてください。囲んだ範囲が下段にちょうど収まるよう、位置とズームを自動計算します。
+    <div id="face-tabs" style="display:flex;gap:6px">
+      <button class="face-tab btn-primary" data-target="main" style="font-size:12px;padding:6px 12px">▲ 上段（全体映像）</button>
+      <button class="face-tab btn-secondary" data-target="face" style="font-size:12px;padding:6px 12px">● 下段（顔カメラ）</button>
     </div>
+    <div id="face-desc" style="font-size:12px;color:var(--muted)"></div>
 
     <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)">
       <span style="flex-shrink:0">静止画の時刻</span>
@@ -355,17 +420,20 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
         <img id="face-frame" style="display:block;width:100%;height:auto;pointer-events:none" alt="">
         <div id="face-sel" style="position:absolute;display:none;border:2px solid var(--accent);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none"></div>
         <div id="face-actual" style="position:absolute;display:none;border:2px dashed rgba(255,255,255,.85);pointer-events:none"></div>
+        <div id="face-actual-band" style="position:absolute;display:none;background:rgba(0,0,0,.55);border-bottom:1px dashed rgba(255,255,255,.6);color:rgba(255,255,255,.85);font-size:10px;text-align:center;pointer-events:none;overflow:hidden">タイトルバー</div>
         <div id="face-hint" style="position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding-top:10px;pointer-events:none">
-          <span style="background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px">ドラッグして顔を囲む（点線＝現在の表示範囲）</span>
+          <span id="face-hint-text" style="background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px"></span>
         </div>
       </div>
 
       <div style="width:210px;flex-shrink:0;display:flex;flex-direction:column;gap:8px">
-        <div id="face-preview-label" style="font-size:11px;color:var(--muted);font-weight:600">下段プレビュー</div>
+        <div id="face-preview-label" style="font-size:11px;color:var(--muted);font-weight:600">プレビュー</div>
         <div id="face-preview" style="position:relative;width:210px;background:#151015;border:1px solid var(--border);border-radius:6px;overflow:hidden">
           <img id="face-preview-img" style="position:absolute;max-width:none" alt="">
+          <div id="face-preview-titlebar" style="position:absolute;display:none;left:0;right:0;background:rgba(0,0,0,.6);border-bottom:1px dashed rgba(255,255,255,.5);color:rgba(255,255,255,.8);font-size:9px;text-align:center;line-height:1.1;padding-top:2px;pointer-events:none">タイトルバー</div>
         </div>
         <div id="face-values" style="font-size:11px;color:var(--muted);font-family:monospace;line-height:1.7"></div>
+        <div id="face-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4"></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
           <input type="checkbox" id="face-apply-all" checked> すべてのクリップに適用
         </label>
@@ -425,8 +493,11 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <input type="text" id="p1-url" placeholder="https://youtube.com/watch?v=...">
     </div>
     <div class="field">
-      <label>言語（文字起こし用）</label>
-      <select id="p1-lang"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="ko">한국어</option></select>
+      <label>画質</label>
+      <select id="p1-quality">
+        <option value="1080" selected>フルHD (1080p)</option>
+        <option value="720">720p</option>
+      </select>
     </div>
     <div class="phase-actions">
       <button class="btn-primary" id="ph1-btn" onclick="runPhase1(false)">▶ ダウンロード</button>
@@ -456,17 +527,11 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
     <span class="chevron">▾</span>
   </div>
   <div class="phase-body">
-    <div class="field-row">
-      <div class="field">
-        <label>動画 / 音声ファイル</label>
-        <div class="file-wrap">
-          <select id="p2-video"><option value="">-- 選択してください --</option></select>
-          <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p2-video','audio')">↺</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>言語</label>
-        <select id="p2-lang"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option><option value="ko">한국어</option></select>
+    <div class="field">
+      <label>動画 / 音声ファイル</label>
+      <div class="file-wrap">
+        <select id="p2-video"><option value="">-- 選択してください --</option></select>
+        <button class="btn-refresh" title="一覧更新" onclick="refreshFiles('p2-video','audio')">↺</button>
       </div>
     </div>
     <div class="field" style="margin-top:8px" hidden>
@@ -565,6 +630,19 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
       <label>追加指示（任意） ※他の選定ルールより最優先されます</label>
       <textarea id="p3-extra-prompt" rows="3" placeholder="例：&#13;&#10;・10分頃のゲーム攻略シーンを切り抜いて&#13;&#10;・マリオカートについての雑談をしている部分を切り抜いて&#13;&#10;・AIについて熱く語っている部分を時間制限なく切り抜いて" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
     </div>
+    <div class="field" style="margin-top:8px">
+      <label>提案モデル</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p3-gemini-model" value="gemini-3.6-flash" checked style="margin-top:3px;flex-shrink:0">
+          <span><b>Gemini 3.6 Flash</b> <span style="color:var(--green);font-size:11px">おすすめ</span></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer">
+          <input type="radio" name="p3-gemini-model" value="gemini-3.5-flash-lite" style="margin-top:3px;flex-shrink:0">
+          <span><b>Gemini 3.5 Flash Lite</b></span>
+        </label>
+      </div>
+    </div>
     <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
         <input type="checkbox" id="p3-silence-cut">
@@ -620,20 +698,6 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
         </div>
       </div>
     </div>
-    <div class="field-row" style="margin-top:6px">
-      <div class="field">
-        <label>ソース動画の向き</label>
-        <select id="p4-src-orientation" onchange="onSrcOrientationChange()">
-          <option value="">自動検出</option>
-          <option value="1.7778">横動画 (16:9)</option>
-          <option value="0.5625">縦動画 (9:16)</option>
-          <option value="1">正方形 (1:1)</option>
-        </select>
-      </div>
-      <div class="field" style="justify-content:flex-end;padding-top:20px">
-        <span id="p4-src-detected" style="font-size:12px;color:var(--muted)"></span>
-      </div>
-    </div>
     <div class="phase-actions">
       <button class="btn-secondary" id="ph4-load-btn" onclick="loadClipsForRender()">クリップを読み込む</button>
     </div>
@@ -649,6 +713,45 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
           <button class="btn-export" id="ph4-export-btn" onclick="exportPremiere()" title="構図・カット適用済みで字幕を焼き込まないmp4と、字幕ファイル(SRT)を書き出します。Premiere Pro などで字幕を自分で付ける用の素材です">📦 編集用に書き出し</button>
           <button class="btn-danger" id="ph4-cancel-btn" onclick="cancelPhase4()" hidden>中止</button>
           <button class="btn-render" id="ph4-render-btn" onclick="runPhase4()">▶ レンダリング</button>
+        </div>
+      </div>
+      <div class="clips-global-settings" id="ph4-global-settings" style="background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:12px">
+        <div class="gs-title">⚙ 全クリップ共通設定</div>
+        <div class="gs-grid">
+          <div>
+            <div class="gs-field-label"><span>動画の向き</span></div>
+            <div id="global-orientation-toggle" style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+              <button type="button" class="global-orientation-btn" data-vertical="1" style="flex:1;padding:7px 8px;font-size:12px;font-weight:600;border:none;cursor:pointer">📱 ショート動画</button>
+              <button type="button" class="global-orientation-btn" data-vertical="0" style="flex:1;padding:7px 8px;font-size:12px;font-weight:600;border:none;cursor:pointer">🖥 横動画</button>
+            </div>
+          </div>
+          <div>
+            <div class="gs-field-label"><span>カラーテーマ</span></div>
+            <select id="global-theme" style="font-size:12px;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%"></select>
+          </div>
+          <div>
+            <div class="gs-field-label"><span>字幕サイズ</span><span><b id="global-caption-size-val">96</b>px</span></div>
+            <div class="gs-slider-row">
+              <span class="gs-hint">小</span>
+              <input type="range" id="global-caption-size" min="48" max="160" step="4" value="96">
+              <span class="gs-hint">大</span>
+            </div>
+          </div>
+          <div>
+            <div class="gs-field-label"><span>上下比率</span><span><b id="global-split-top-ratio-val">4.5</b> : <b id="global-split-bottom-ratio-val">5.5</b></span></div>
+            <div class="gs-slider-row">
+              <span class="gs-hint">上段1</span>
+              <input type="range" id="global-split-top-ratio" min="1" max="9" step="0.5" value="4.5">
+              <span class="gs-hint">上段9</span>
+            </div>
+          </div>
+          <div>
+            <div class="gs-field-label"><span>字幕エフェクト</span></div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer">
+              <input type="checkbox" id="global-caption-effects" checked>
+              字幕エフェクトをつける
+            </label>
+          </div>
         </div>
       </div>
       <div class="clips-grid" id="ph4-clips-grid"></div>
@@ -1052,7 +1155,8 @@ async function runPhase1(chatOnly = false) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
-        language: document.getElementById('p1-lang').value,
+        language: 'ja',
+        video_quality: document.getElementById('p1-quality').value,
         stop_after: 'download',
         chat_only: chatOnly,
       }),
@@ -1131,7 +1235,7 @@ async function runPhase2() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         video_path: videoFile,
-        language: document.getElementById('p2-lang').value,
+        language: 'ja',
         transcription_prompt: document.getElementById('p2-extra-prompt').value.trim() || undefined,
         audio_mode: document.querySelector('input[name="p2-audio-mode"]:checked')?.value || 'mp3',
         transcription_model: document.querySelector('input[name="p2-trans-model"]:checked')?.value || 'elevenlabs',
@@ -1202,10 +1306,12 @@ async function runPhase3() {
     const extraPrompt = document.getElementById('p3-extra-prompt').value.trim();
     const silenceCut = document.getElementById('p3-silence-cut').checked;
     const silenceThreshold = parseFloat(document.getElementById('p3-silence-threshold').value) || 2.0;
+    const geminiModel = document.querySelector('input[name="p3-gemini-model"]:checked')?.value;
     const body = { transcription_path: transFile };
     if (videoForTrans) body.video_path = videoForTrans;
     if (extraPrompt) body.extra_prompt = extraPrompt;
     if (silenceCut) { body.silence_cut = true; body.silence_threshold = silenceThreshold; }
+    if (geminiModel) body.gemini_model = geminiModel;
 
     const res = await fetch('/api/jobs', {
       method: 'POST',
@@ -1438,6 +1544,7 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function loadClipsIntoGrid(clips) {
   const grid = document.getElementById('ph4-clips-grid');
   grid.innerHTML = '';
+  initGlobalClipSettings(clips[0]);
   clips.forEach((c, i) => {
     if (!c.verticalMode || c.verticalMode === 'crop') c.verticalMode = 'split';
     grid.appendChild(buildClipCard(c, i));
@@ -1446,6 +1553,58 @@ function loadClipsIntoGrid(clips) {
   document.getElementById('ph4-clips-section').hidden = false;
   updateSelInfo();
 }
+
+// ── 全クリップ共通設定（動画の向き／カラーテーマ／字幕サイズ／上下比率） ────
+// 各クリップにチェックボックス・スライダー・セレクトを持たせず、この1組の値を
+// 全クリップに適用する。
+function initGlobalClipSettings(firstClip) {
+  setGlobalOrientation((firstClip && firstClip.vertical != null) ? firstClip.vertical : true);
+
+  refreshThemeSelects();
+  document.getElementById('global-theme').value = (firstClip && firstClip.theme) || THEME_DATA.default;
+
+  const size = (firstClip && firstClip.captionFontSize) ?? 96;
+  document.getElementById('global-caption-size').value = size;
+  document.getElementById('global-caption-size-val').textContent = size;
+
+  const ratio = (firstClip && firstClip.splitTopRatio) ?? 4.5;
+  document.getElementById('global-split-top-ratio').value = ratio;
+  document.getElementById('global-split-top-ratio-val').textContent = ratio;
+  document.getElementById('global-split-bottom-ratio-val').textContent = 10 - ratio;
+
+  document.getElementById('global-caption-effects').checked =
+    (firstClip && firstClip.captionEffectsEnabled) ?? true;
+}
+
+function globalIsVertical() {
+  return document.getElementById('global-orientation-toggle').dataset.vertical !== '0';
+}
+
+function setGlobalOrientation(isVertical) {
+  const toggle = document.getElementById('global-orientation-toggle');
+  toggle.dataset.vertical = isVertical ? '1' : '0';
+  toggle.querySelectorAll('.global-orientation-btn').forEach(btn => {
+    const active = (btn.dataset.vertical === '1') === isVertical;
+    btn.style.background = active ? 'var(--accent)' : 'var(--surface)';
+    btn.style.color = active ? 'var(--text)' : 'var(--muted)';
+  });
+  document.querySelectorAll('#ph4-clips-grid .clip-card .clip-vert-options').forEach(el => {
+    el.style.display = isVertical ? 'flex' : 'none';
+  });
+}
+
+document.querySelectorAll('#global-orientation-toggle .global-orientation-btn').forEach(btn => {
+  btn.addEventListener('click', () => setGlobalOrientation(btn.dataset.vertical === '1'));
+});
+
+document.getElementById('global-caption-size').addEventListener('input', function () {
+  document.getElementById('global-caption-size-val').textContent = this.value;
+});
+document.getElementById('global-split-top-ratio').addEventListener('input', function () {
+  const v = parseFloat(this.value);
+  document.getElementById('global-split-top-ratio-val').textContent = v;
+  document.getElementById('global-split-bottom-ratio-val').textContent = 10 - v;
+});
 
 function syncAllSliders(sliderClass, valClass, value, fmt) {
   document.querySelectorAll('#ph4-clips-grid .clip-card').forEach(c => {
@@ -1462,12 +1621,7 @@ function buildClipCard(clip, idx) {
   // Preserve fields that have no UI controls
   card.dataset.cutIntervals = JSON.stringify(clip.cutIntervals || null);
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
-  card.dataset.theme = clip.theme || THEME_DATA.default;
   card.dataset.captionEffect = clip.captionEffect || '';
-
-  // Auto-check vertical when source is portrait (unless the clip explicitly set vertical)
-  const effectiveSrcAspect = phaseOut.srcAspect || 16/9;
-  const defaultVertical = clip.vertical != null ? clip.vertical : (effectiveSrcAspect < 1);
 
   const cutDur = (clip.cutIntervals || []).reduce((s, iv) => s + (iv.endSec - iv.startSec), 0);
   const playedDur = (clip.end_sec - clip.start_sec) - cutDur;
@@ -1484,6 +1638,7 @@ function buildClipCard(clip, idx) {
       <input type="number" class="t-end" value="${clip.end_sec.toFixed(1)}" step="0.5" min="0">
       <span class="dur-tag">${durStr(0, playedDur)}${clip.cutIntervals?.length ? ' ✂' : ''}</span>
     </div>
+    <div class="clip-reason">${escHtml(clip.reason || '')}</div>
     <div class="ki-editor" style="margin-top:6px;padding:6px 0;border-top:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <span style="font-size:11px;color:var(--muted);font-weight:600">✂ カット区間 <span style="font-weight:400;opacity:0.7">(HH:MM:SS)</span></span>
@@ -1500,86 +1655,66 @@ function buildClipCard(clip, idx) {
         `).join('')}
       </div>
     </div>
-    <div class="clip-crop-row" style="margin-top:6px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-        <span>小</span><span>字幕サイズ: <b class="caption-size-val">${clip.captionFontSize ?? 96}</b>px</span><span>大</span>
-      </div>
-      <input type="range" class="clip-caption-size" min="48" max="160" step="4" value="${clip.captionFontSize ?? 96}" style="width:100%">
-    </div>
-
-    <div class="clip-crop-row" style="margin-top:6px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
-        <span>カラーテーマ</span>
-      </div>
-      <select class="clip-theme" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);width:100%">
-        ${Object.entries(THEME_DATA.themes).map(([k, v]) => `<option value="${k}" ${(clip.theme || THEME_DATA.default) === k ? 'selected' : ''}>${escHtml(v.label)}</option>`).join('')}
-      </select>
-    </div>
-    <button class="clip-comment-btn btn-secondary" style="width:100%;font-size:12px;padding:6px 10px;margin-top:6px">💬 コメント吹き出しを設定</button>
-    <div class="clip-reason">${escHtml(clip.reason || '')}</div>
-    <div class="clip-foot">
-      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)">
-        <input type="checkbox" class="clip-vertical" ${defaultVertical ? 'checked' : ''}> 縦動画 (9:16)
-      </label>
-      <button class="btn-danger">削除</button>
-    </div>
-    <div class="clip-vert-options" style="display:${clip.vertical ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px">
-      <div style="display:flex;gap:14px;font-size:12px;color:var(--muted)">
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+    <div class="clip-vert-options" style="display:${globalIsVertical() ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px">
+      <div class="seg-toggle">
+        <label class="seg-opt">
           <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" ${clip.verticalMode === 'crop' ? 'checked' : ''}>
-          クロップ（人物中心）
+          クロップ<span class="seg-opt-sub">人物中心</span>
         </label>
-        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+        <label class="seg-opt">
           <input type="radio" class="clip-vmode" name="vmode-${idx}" value="split" ${(!clip.verticalMode || clip.verticalMode === 'split') ? 'checked' : ''}>
-          二段構成（全体＋顔）
+          二段構成<span class="seg-opt-sub">全体＋顔</span>
         </label>
       </div>
-      <div class="clip-face-pick-row" style="display:${(!clip.verticalMode || clip.verticalMode === 'split') ? 'block' : 'none'}">
-        <button class="clip-face-pick-btn btn-secondary" style="width:100%;font-size:12px;padding:6px 10px">🎯 静止画から顔位置を指定</button>
+      <div class="clip-face-pick-row">
+        <button class="clip-face-pick-btn btn-primary" style="width:100%;font-size:13px;font-weight:700;padding:10px 10px;box-shadow:0 3px 10px rgba(255,127,176,.45)">🎯 静止画から切り抜き範囲を指定</button>
       </div>
-      <div class="clip-crop-row">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>← 左</span><span>顔の位置: <b class="crop-x-val">${clip.cropX ?? 93}</b>%</span><span>右 →</span>
-        </div>
-        <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 93}" style="width:100%">
-      </div>
-      <div class="clip-crop-row">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>縮小</span><span>zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 2.0}</b>x</span><span>拡大</span>
-        </div>
-        <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.01" value="${clip.faceCamZoom ?? 2.0}" style="width:100%">
-      </div>
-      <div class="clip-crop-row">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-          <span>↑ 上</span><span>縦位置: <b class="face-y-val">${clip.faceCamY ?? 100}</b>%</span><span>下 ↓</span>
-        </div>
-        <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 100}" style="width:100%">
-      </div>
-      <div class="clip-main-options" style="display:${(!clip.verticalMode || clip.verticalMode === 'split') ? 'flex' : 'none'};flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
-        <div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>上段 1</span><span>上下比率: <b class="split-top-ratio-val">${clip.splitTopRatio ?? 5}</b> : <b class="split-bottom-ratio-val">${10 - (clip.splitTopRatio ?? 5)}</b></span><span>9 上段</span>
+      <button class="clip-comment-btn btn-secondary" style="width:100%;font-size:12px;padding:6px 10px">💬 コメント吹き出しを設定</button>
+      <button type="button" class="clip-detail-toggle" style="width:100%;font-size:11px;padding:7px 2px 3px;margin-top:2px;display:flex;align-items:center;justify-content:flex-start;gap:5px;background:none;border:none;border-top:1px dashed var(--border);color:var(--muted);font-weight:600;cursor:pointer">
+        <span class="clip-detail-toggle-chevron" style="display:inline-block">▶</span> 位置・ズームを手動調整
+      </button>
+      <div class="clip-detail-panel" style="display:none;flex-direction:column;gap:10px">
+        <div class="clip-main-options detail-subpanel" style="display:${(!clip.verticalMode || clip.verticalMode === 'split') ? 'flex' : 'none'}">
+          <div class="detail-subpanel-hd">▲ 上段（全体映像）</div>
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>縮小</span><span>上段zoom: <b class="main-zoom-val">${clip.mainZoom ?? 1.0}</b>x</span><span>拡大</span>
+            </div>
+            <input type="range" class="clip-main-zoom" min="0.5" max="8" step="0.01" value="${clip.mainZoom ?? 1.0}" style="width:100%">
           </div>
-          <input type="range" class="clip-split-top-ratio" min="1" max="9" step="1" value="${clip.splitTopRatio ?? 5}" style="width:100%">
-        </div>
-        <div style="font-size:11px;color:var(--muted);font-weight:600">▲ 上段（全体映像）</div>
-        <div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>縮小</span><span>上段zoom: <b class="main-zoom-val">${clip.mainZoom ?? 1.0}</b>x</span><span>拡大</span>
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>← 左</span><span>上段水平位置: <b class="main-crop-x-val">${clip.mainCropX ?? 50}</b>%</span><span>右 →</span>
+            </div>
+            <input type="range" class="clip-main-crop-x" min="0" max="100" step="1" value="${clip.mainCropX ?? 50}" style="width:100%">
           </div>
-          <input type="range" class="clip-main-zoom" min="0.5" max="8" step="0.01" value="${clip.mainZoom ?? 1.0}" style="width:100%">
-        </div>
-        <div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>← 左</span><span>上段水平: <b class="main-crop-x-val">${clip.mainCropX ?? 50}</b>%</span><span>右 →</span>
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>↑ 上</span><span>上段垂直位置: <b class="main-crop-y-val">${clip.mainCropY ?? 50}</b>%</span><span>下 ↓</span>
+            </div>
+            <input type="range" class="clip-main-crop-y" min="0" max="100" step="1" value="${clip.mainCropY ?? 50}" style="width:100%">
           </div>
-          <input type="range" class="clip-main-crop-x" min="0" max="100" step="1" value="${clip.mainCropX ?? 50}" style="width:100%">
         </div>
-        <div class="clip-crop-row">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-            <span>↑ 上</span><span>上段垂直: <b class="main-crop-y-val">${clip.mainCropY ?? 50}</b>%</span><span>下 ↓</span>
+        <div class="clip-facecam-options detail-subpanel" style="display:flex">
+          <div class="facecam-heading detail-subpanel-hd">${clip.verticalMode === 'crop' ? '■ 表示範囲' : '● 下段（顔カメラ）'}</div>
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>縮小</span><span>下段zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 2.0}</b>x</span><span>拡大</span>
+            </div>
+            <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.01" value="${clip.faceCamZoom ?? 2.0}" style="width:100%">
           </div>
-          <input type="range" class="clip-main-crop-y" min="0" max="100" step="1" value="${clip.mainCropY ?? 50}" style="width:100%">
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>← 左</span><span>下段水平位置: <b class="crop-x-val">${clip.cropX ?? 93}</b>%</span><span>右 →</span>
+            </div>
+            <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 93}" style="width:100%">
+          </div>
+          <div class="clip-crop-row">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
+              <span>↑ 上</span><span>下段垂直位置: <b class="face-y-val">${clip.faceCamY ?? 100}</b>%</span><span>下 ↓</span>
+            </div>
+            <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 100}" style="width:100%">
+          </div>
         </div>
       </div>
     </div>
@@ -1592,15 +1727,6 @@ function buildClipCard(clip, idx) {
   const te = card.querySelector('.t-end');
   const dur = card.querySelector('.dur-tag');
   [ts, te].forEach(el => el.addEventListener('input', () => { dur.textContent = durStr(parseSec(ts.value), parseSec(te.value)); }));
-
-  const vertCb = card.querySelector('.clip-vertical');
-  const vertOptions = card.querySelector('.clip-vert-options');
-  vertCb.addEventListener('change', () => { vertOptions.style.display = vertCb.checked ? 'flex' : 'none'; });
-
-  const captionSizeSlider = card.querySelector('.clip-caption-size');
-  captionSizeSlider.addEventListener('input', () => {
-    syncAllSliders('.clip-caption-size', '.caption-size-val', captionSizeSlider.value, v => v);
-  });
 
   const cropSlider = card.querySelector('.clip-crop-x');
   cropSlider.addEventListener('input', () => {
@@ -1615,13 +1741,6 @@ function buildClipCard(clip, idx) {
   const faceYSlider = card.querySelector('.clip-face-y');
   faceYSlider.addEventListener('input', () => {
     syncAllSliders('.clip-face-y', '.face-y-val', faceYSlider.value, v => v);
-  });
-
-  const splitTopRatioSlider = card.querySelector('.clip-split-top-ratio');
-  splitTopRatioSlider.addEventListener('input', () => {
-    const v = parseInt(splitTopRatioSlider.value, 10);
-    syncAllSliders('.clip-split-top-ratio', '.split-top-ratio-val', v, v => v);
-    card.querySelectorAll('.split-bottom-ratio-val').forEach(el => { el.textContent = 10 - v; });
   });
 
   const mainZoomSlider = card.querySelector('.clip-main-zoom');
@@ -1639,16 +1758,15 @@ function buildClipCard(clip, idx) {
     syncAllSliders('.clip-main-crop-y', '.main-crop-y-val', mainCropYSlider.value, v => v);
   });
 
-  // vmode切替時に上段スライダーの表示を制御
-  // 顔位置ピッカーは二段構成モード専用（クロップモードでは cropX/faceCamY の意味が違う）
+  // vmode切替時に上段スライダーの表示・下段見出しの文言を制御
+  // 位置ピッカーはどちらのモードでも使える（開いたときのモードで指定できる面が変わる）
   const mainOptions = card.querySelector('.clip-main-options');
-  const facePickRow = card.querySelector('.clip-face-pick-row');
+  const facecamHeading = card.querySelector('.facecam-heading');
   card.querySelectorAll('.clip-vmode').forEach(r => {
     r.addEventListener('change', () => {
-      mainOptions.style.display = r.value === 'split' && r.checked ? 'flex' : mainOptions.style.display;
       if (r.checked) {
         mainOptions.style.display = r.value === 'split' ? 'flex' : 'none';
-        facePickRow.style.display = r.value === 'split' ? 'block' : 'none';
+        facecamHeading.textContent = r.value === 'crop' ? '■ 表示範囲' : '● 下段（顔カメラ）';
       }
     });
   });
@@ -1656,7 +1774,13 @@ function buildClipCard(clip, idx) {
   card.querySelector('.clip-face-pick-btn').addEventListener('click', () => openFacePicker(card));
   card.querySelector('.clip-comment-btn').addEventListener('click', () => openCommentPicker(card));
 
-  card.querySelector('.btn-danger').addEventListener('click', () => { card.remove(); updateSelInfo(); });
+  const detailToggle = card.querySelector('.clip-detail-toggle');
+  const detailPanel = card.querySelector('.clip-detail-panel');
+  detailToggle.addEventListener('click', () => {
+    const opening = detailPanel.style.display === 'none';
+    detailPanel.style.display = opening ? 'flex' : 'none';
+    detailToggle.querySelector('.clip-detail-toggle-chevron').textContent = opening ? '▼' : '▶';
+  });
 
   // ── cutIntervals editor ──────────────────────────────────────────────────
   const kiRows = card.querySelector('.ki-rows');
@@ -1696,54 +1820,184 @@ function buildClipCard(clip, idx) {
 }
 
 
-// ── 顔位置ピッカー（二段構成モードの下段） ─────────────────────────────────
-// 静止画の上で囲んだ矩形を cropX / faceCamZoom / faceCamY に逆算する。
-// 下段の組み立ては ClipComposition.tsx の二段構成モードブロックがオリジナル:
-//   faceCamInnerH = bottomH * faceCamZoom          （高さが下段の zoom 倍になるよう拡大）
-//   faceCamInnerW = faceCamInnerH * srcAspect
-//   top  = -(faceCamInnerH - bottomH) * faceCamY/100
-//   left = clamp(seqW/2 - faceCamInnerW * cropX/100, -(faceCamInnerW - seqW), 0)
-// つまり下段に映る元動画の範囲は
-//   縦: 高さ比 vh = 1/zoom、開始位置 = (1 - vh) * faceCamY/100
-//   横: 幅比   vw = seqW / (bottomH * zoom * srcAspect)、中心 = cropX/100
-// この2式を解いたものが fitFaceCam()。bottomH はタイトルバーの高さに依存するため
+// ── 位置ピッカー（二段構成モードの上段／下段、クロップモードの表示範囲） ────
+// 静止画の上で囲んだ矩形を、その面の zoom / 水平 / 垂直に逆算する。
+//
+// 二段構成モードの上段（mainZoom / mainCropX / mainCropY）と下段
+// （faceCamZoom / cropX / faceCamY）は ClipComposition.tsx で同じ形の式に組まれて
+// いて、違うのはパネルの高さ panelH（上段=mainH、下段=bottomH）と props 名だけ:
+//   innerH = panelH * zoom                （高さがパネルの zoom 倍になるよう拡大）
+//   innerW = innerH * srcAspect
+//   top  = -(innerH - panelH) * y/100
+//   left = clamp(seqW/2 - innerW * x/100, -(innerW - seqW), 0)
+// つまりパネルに映る元動画の範囲は
+//   縦: 高さ比 vh = 1/zoom、開始位置 = (1 - vh) * y/100
+//   横: 幅比   vw = seqW / (panelH * zoom * srcAspect)、中心 = x/100
+// この2式を解いたものが fitPanel()。
+//
+// クロップモードは同じ props（faceCamZoom / cropX / faceCamY）を使うが**式が違う**:
+//   scaledH = seqH * zoom                 （パネルではなく縦動画全体の zoom 倍）
+//   scaledW = scaledH * srcAspect
+//   top  = -(scaledH - seqH) * y/100
+//   left = -(scaledW - seqW) * x/100      （中心指定ではなく「はみ出しのうち左に隠す割合」）
+// さらにタイトルバーは映像の上に重なって描かれるので、囲った範囲がバーに隠れない
+// よう、縦は seqH ではなく mainTop（= セーフエリア + タイトルバー）から下の高さに
+// 収める。これを解いたものが fitCrop()。
+//
+// panelH も mainTop もタイトルバーの高さに依存するため
 // /api/split-geometry（premiere_export.split_geometry）から取得する。
-const FACE_ZOOM_MAX = 8, FACE_ZOOM_STEP = 0.01;  // .clip-face-zoom スライダーの上限と刻み
+const PANEL_ZOOM_MAX = 8, PANEL_ZOOM_STEP = 0.01;  // zoom スライダーの上限と刻み
 
-const facePicker = { card: null, geo: null, srcAspect: 16/9, rect: null, fit: null, video: null };
+// 囲った範囲どおりに収められなかったときの理由（プレビューの下に出す）
+const NOTE_BLACK_EDGE = '黒帯が出ないよう、囲った範囲より寄せています。';
+const NOTE_TITLE_BAR = 'タイトルバーに隠れないよう、囲った範囲より寄せています。';
 
-function fitFaceCam(rect, geo, srcAspect) {
+// スライダーの刻みに合わせた zoom。limit（囲った範囲がちょうど収まる zoom）は
+// 切り捨てる — 切り上げると寄りすぎて囲った範囲の端が切れるうえ、位置スライダーが
+// 1%刻みで生じるズレを吸収する余裕もなくなる。逆に下限 lo は切り上げる（下回ると
+// 左右、zoom<1 なら上下に黒帯が出る）。
+function quantizeZoom(limit, lo) {
+  const floor = Math.ceil(Math.max(1, lo) / PANEL_ZOOM_STEP) * PANEL_ZOOM_STEP;
+  const q = Math.floor(limit / PANEL_ZOOM_STEP) * PANEL_ZOOM_STEP;
+  return Math.round(Math.min(PANEL_ZOOM_MAX, Math.max(floor, q)) * 100) / 100;
+}
+
+// 面ごとの違いはここだけ。ピッカー本体は上段・下段・クロップを区別しない。
+const FACE_PANELS = {
+  main: {
+    label: '▲ 上段（全体映像）',
+    desc: '静止画の上で上段に映したい範囲をドラッグで囲んでください。囲んだ範囲がちょうど収まるよう、上段の位置とズームを自動計算します。',
+    hint: 'ドラッグして上段に映す範囲を囲む（点線＝現在の表示範囲）',
+    previewLabel: '上段プレビュー',
+    previewH: geo => geo.mainH,
+    fit: (rect, geo, aspect) => fitPanel(rect, geo.mainH, geo, aspect),
+    window: (p, geo, aspect) => panelWindow(p, geo.mainH, geo, aspect),
+    fields: [
+      { key: 'zoom', label: '上段zoom',     unit: 'x', input: '.clip-main-zoom',   out: '.main-zoom-val',   fmt: v => v.toFixed(2) },
+      { key: 'x',    label: '上段水平位置', unit: '%', input: '.clip-main-crop-x', out: '.main-crop-x-val', fmt: v => String(v) },
+      { key: 'y',    label: '上段垂直位置', unit: '%', input: '.clip-main-crop-y', out: '.main-crop-y-val', fmt: v => String(v) },
+    ],
+  },
+  face: {
+    label: '● 下段（顔カメラ）',
+    desc: '静止画の上で顔を囲むようにドラッグしてください。囲んだ範囲が下段にちょうど収まるよう、位置とズームを自動計算します。',
+    hint: 'ドラッグして顔を囲む（点線＝現在の表示範囲）',
+    previewLabel: '下段プレビュー',
+    previewH: geo => geo.bottomH,
+    fit: (rect, geo, aspect) => fitPanel(rect, geo.bottomH, geo, aspect),
+    window: (p, geo, aspect) => panelWindow(p, geo.bottomH, geo, aspect),
+    fields: [
+      { key: 'zoom', label: '下段zoom',     unit: 'x', input: '.clip-face-zoom', out: '.face-zoom-val', fmt: v => v.toFixed(2) },
+      { key: 'x',    label: '下段水平位置', unit: '%', input: '.clip-crop-x',    out: '.crop-x-val',    fmt: v => String(v) },
+      { key: 'y',    label: '下段垂直位置', unit: '%', input: '.clip-face-y',    out: '.face-y-val',    fmt: v => String(v) },
+    ],
+  },
+  crop: {
+    label: '■ 表示範囲',
+    desc: '静止画の上で映したい範囲をドラッグで囲んでください。タイトルバーに隠れない位置に収まるよう、縦動画（9:16）の表示位置とズームを自動計算します。',
+    hint: 'ドラッグして映す範囲を囲む（点線＝現在の表示範囲）',
+    previewLabel: '縦動画プレビュー',
+    previewH: geo => geo.seqH,       // クロップモードは縦動画全体が1枚の面
+    titleBand: true,                 // プレビューにタイトルバーの帯を重ねる
+    fit: (rect, geo, aspect) => fitCrop(rect, geo, aspect),
+    window: (p, geo, aspect) => cropWindow(p, geo, aspect),
+    fields: [
+      { key: 'zoom', label: 'zoom',     unit: 'x', input: '.clip-face-zoom', out: '.face-zoom-val', fmt: v => v.toFixed(2) },
+      { key: 'x',    label: '水平位置', unit: '%', input: '.clip-crop-x',    out: '.crop-x-val',    fmt: v => String(v) },
+      { key: 'y',    label: '垂直位置', unit: '%', input: '.clip-face-y',    out: '.face-y-val',    fmt: v => String(v) },
+    ],
+  },
+};
+
+// クリップの縦動画モードごとに、指定できる面（＝タブ）
+const FACE_MODE_TARGETS = { split: ['main', 'face'], crop: ['crop'] };
+
+// 面ごとに選択を別々に保持する（二段構成なら1回開いて上段・下段の両方を指定できる）
+const facePicker = {
+  card: null, geo: null, srcAspect: 16/9, video: null,
+  mode: 'split', target: 'main',
+  sel: {},
+};
+
+const activePanel = () => FACE_PANELS[facePicker.target];
+const activeSel = () => facePicker.sel[facePicker.target];
+const activeTargets = () => FACE_MODE_TARGETS[facePicker.mode];
+const activePreviewH = () => activePanel().previewH(facePicker.geo);
+
+function fitPanel(rect, panelH, geo, srcAspect) {
   const rw = Math.min(1, Math.max(rect.w, 0.01));
   const rh = Math.min(1, Math.max(rect.h, 0.01));
   // 囲った範囲がちょうど収まる zoom（縦・横それぞれの限界のうち厳しい方）
-  const zoomByHeight = 1 / rh;
-  const zoomByWidth = geo.seqW / (geo.bottomH * srcAspect * rw);
-  // 下段は隙間なく埋める前提。ここを下回ると左右（zoom<1 なら上下）に黒帯が出るので、
-  // スライダーの刻みに切り上げてから下限にする（丸めで下回らないように）。
-  const lo = Math.ceil(Math.max(1, geo.seqW / (geo.bottomH * srcAspect)) / FACE_ZOOM_STEP) * FACE_ZOOM_STEP;
-  const quantized = Math.round(Math.min(zoomByHeight, zoomByWidth) / FACE_ZOOM_STEP) * FACE_ZOOM_STEP;
-  const zoom = Math.round(Math.min(FACE_ZOOM_MAX, Math.max(lo, quantized)) * 100) / 100;
+  const contain = Math.min(1 / rh, geo.seqW / (panelH * srcAspect * rw));
+  const zoom = quantizeZoom(contain, geo.seqW / (panelH * srcAspect));
+  const note = zoom > contain + 1e-9 ? NOTE_BLACK_EDGE : '';
 
   const vh = Math.min(1, 1 / zoom);
-  const vw = Math.min(1, geo.seqW / (geo.bottomH * zoom * srcAspect));
+  const vw = Math.min(1, geo.seqW / (panelH * zoom * srcAspect));
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
-  // faceCamY は「はみ出し量のうち上に隠す割合」、cropX は「下段の中央に来る横位置」
-  const faceCamY = vh >= 1 ? 0
+  // y は「はみ出し量のうち上に隠す割合」、x は「パネルの中央に来る横位置」
+  const y = vh >= 1 ? 0
     : Math.round((Math.min(Math.max(cy - vh / 2, 0), 1 - vh) / (1 - vh)) * 100);
-  const cropX = Math.round(Math.min(Math.max(cx, vw / 2), 1 - vw / 2) * 100);
-  const params = { cropX, faceCamY, faceCamZoom: zoom };
-  return { ...params, window: faceCamWindow(params, geo, srcAspect) };
+  const x = Math.round(Math.min(Math.max(cx, vw / 2), 1 - vw / 2) * 100);
+  const params = { zoom, x, y };
+  return { ...params, note, window: panelWindow(params, panelH, geo, srcAspect) };
 }
 
-// 下段に実際に映る元動画の範囲（0〜1）。上の逆算とは違い、ClipComposition.tsx の
+// パネルに実際に映る元動画の範囲（0〜1）。上の逆算とは違い、ClipComposition.tsx の
 // 二段構成モードそのままの式なので、プレビューと点線枠が本番と一致する。
-function faceCamWindow(p, geo, srcAspect) {
-  const innerH = Math.round(geo.bottomH * p.faceCamZoom);
+function panelWindow(p, panelH, geo, srcAspect) {
+  const innerH = Math.round(panelH * p.zoom);
   const innerW = Math.round(innerH * srcAspect);
-  const top = -Math.round((innerH - geo.bottomH) * (p.faceCamY / 100));
-  const left = Math.max(-(innerW - geo.seqW), Math.min(0, Math.round(geo.seqW / 2 - innerW * (p.cropX / 100))));
-  return { x: -left / innerW, y: -top / innerH, w: geo.seqW / innerW, h: geo.bottomH / innerH };
+  const top = -Math.round((innerH - panelH) * (p.y / 100));
+  const left = Math.max(-(innerW - geo.seqW), Math.min(0, Math.round(geo.seqW / 2 - innerW * (p.x / 100))));
+  return { x: -left / innerW, y: -top / innerH, w: geo.seqW / innerW, h: panelH / innerH };
+}
+
+// クロップモードの逆算。縦は「タイトルバーより下」に囲った範囲が収まるようにする。
+function fitCrop(rect, geo, srcAspect) {
+  const rw = Math.min(1, Math.max(rect.w, 0.01));
+  const rh = Math.min(1, Math.max(rect.h, 0.01));
+  const visH = geo.seqH - geo.mainTop;   // タイトルバーに隠れずに見える高さ
+  // 囲った範囲がその可視域にちょうど収まる zoom（縦・横のうち厳しい方）
+  const contain = Math.min(visH / (rh * geo.seqH), geo.seqW / (rw * srcAspect * geo.seqH));
+  // 可視域の上端は必ず mainTop/scaledH（top ≤ 0 のため）。範囲の上端をそこより下に
+  // 出すには、その ry を押し下げられるだけ寄る必要がある。元動画の上端側を囲うほど
+  // 大きくなり、ry = 0 は原理的に不可能なので上限まで寄せる。
+  const belowBar = rect.y > 0 ? geo.mainTop / (rect.y * geo.seqH) : PANEL_ZOOM_MAX;
+  const blackEdge = geo.seqW / (geo.seqH * srcAspect);
+  const zoom = quantizeZoom(contain, Math.max(blackEdge, belowBar));
+  const note = zoom <= contain + 1e-9 ? ''
+    : (belowBar > Math.max(blackEdge, contain) ? NOTE_TITLE_BAR : NOTE_BLACK_EDGE);
+
+  const scaledH = geo.seqH * zoom;
+  const vw = Math.min(1, geo.seqW / (scaledH * srcAspect));
+  const vh = Math.min(1, visH / scaledH);
+  const overflow = 1 - geo.seqH / scaledH;   // 縦のはみ出し（0なら上下に動かせない）
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  // x/y はどちらも「はみ出し量のうち手前に隠す割合」。y はタイトルバーぶん
+  // (mainTop/scaledH) だけ下にずらした位置が可視範囲の先頭になる。
+  const x = vw >= 1 ? 0
+    : Math.round(Math.min(Math.max((cx - vw / 2) / (1 - vw), 0), 1) * 100);
+  // 可視域は囲った範囲の中央に合わせる。ただし可視域のほうが狭い（zoom上限や
+  // タイトルバーの制約で収まりきらない）ときは、中央ではなく上端に合わせて
+  // 囲った範囲の頭がバーに潜らないようにする。
+  const bandTop = Math.min(cy - vh / 2, rect.y);
+  const y = overflow <= 0 ? 0
+    : Math.round(Math.min(Math.max((bandTop - geo.mainTop / scaledH) / overflow, 0), 1) * 100);
+  const params = { zoom, x, y };
+  return { ...params, note, window: cropWindow(params, geo, srcAspect) };
+}
+
+// クロップモードで縦動画に映る元動画の範囲（0〜1）。ClipComposition.tsx の
+// クロップモードそのままの式。プレビューは縦動画全体なので seqH で割る。
+function cropWindow(p, geo, srcAspect) {
+  const scaledH = Math.round(geo.seqH * p.zoom);
+  const scaledW = Math.round(scaledH * srcAspect);
+  const top = -Math.round((scaledH - geo.seqH) * (p.y / 100));
+  const left = -Math.round((scaledW - geo.seqW) * (p.x / 100));
+  return { x: -left / scaledW, y: -top / scaledH, w: geo.seqW / scaledW, h: geo.seqH / scaledH };
 }
 
 function openFacePicker(card) {
@@ -1754,10 +2008,10 @@ function openFacePicker(card) {
   const end = parseSec(card.querySelector('.t-end').value);
   facePicker.card = card;
   facePicker.video = video;
-  facePicker.rect = null;
-  facePicker.fit = null;
+  facePicker.mode = cardVerticalMode(card);
+  facePicker.sel = {};
+  activeTargets().forEach(t => { facePicker.sel[t] = { rect: null, fit: null }; });
   facePicker.srcAspect = parseFloat(card.dataset.srcAspect)
-    || parseFloat(document.getElementById('p4-src-orientation').value)
     || phaseOut.srcAspect || 16/9;
 
   const range = document.getElementById('face-t-range');
@@ -1766,16 +2020,82 @@ function openFacePicker(card) {
   range.value = (start + end) / 2;
 
   document.getElementById('face-status').textContent = '';
-  document.getElementById('face-sel').style.display = 'none';
   document.getElementById('face-actual').style.display = 'none';
-  document.getElementById('face-hint').style.display = 'flex';
+  document.getElementById('face-actual-band').style.display = 'none';
   document.getElementById('face-values').textContent = '';
   document.getElementById('face-preview-img').removeAttribute('src');
-  document.getElementById('face-apply-btn').disabled = true;
   document.getElementById('face-overlay').style.display = 'flex';
+  // クロップモードは指定できる面が1つだけなのでタブを出さない
+  const targets = activeTargets();
+  document.getElementById('face-tabs').style.display = targets.length > 1 ? 'flex' : 'none';
+  document.querySelectorAll('#face-tabs .face-tab').forEach(b => {
+    b.style.display = targets.includes(b.dataset.target) ? '' : 'none';
+  });
+  setFaceTarget(targets[0]);
 
   loadFaceFrame();
   refreshFaceGeometry();
+}
+
+function cardVerticalMode(card) {
+  return card.querySelector('.clip-vmode:checked')?.value === 'crop' ? 'crop' : 'split';
+}
+
+// タブの切り替え。選択矩形もプレビューの比率もタブごとに持ち替える。
+function setFaceTarget(target) {
+  facePicker.target = target;
+  document.querySelectorAll('#face-tabs .face-tab').forEach(b => {
+    b.className = 'face-tab ' + (b.dataset.target === target ? 'btn-primary' : 'btn-secondary');
+  });
+  refreshFaceTabs();
+  document.getElementById('face-desc').textContent = FACE_PANELS[target].desc;
+  document.getElementById('face-hint-text').textContent = FACE_PANELS[target].hint;
+  paintFaceSelection();
+  applyFacePreviewSize();
+  if (activeSel().rect) updateFaceFit(); else showCurrentFraming();
+}
+
+// 指定済みのタブに ✓ を付け、適用ボタンの文言と活性を選択数に合わせる
+function refreshFaceTabs() {
+  document.querySelectorAll('#face-tabs .face-tab').forEach(b => {
+    const s = facePicker.sel[b.dataset.target];
+    b.textContent = FACE_PANELS[b.dataset.target].label + (s && s.fit ? ' ✓' : '');
+  });
+  const n = activeTargets().filter(t => facePicker.sel[t].fit).length;
+  const btn = document.getElementById('face-apply-btn');
+  btn.disabled = n === 0;
+  btn.textContent = n > 1 ? '上段・下段をまとめて適用' : 'この範囲を適用';
+}
+
+// 現在のタブの選択矩形を描き直す（無選択ならヒントに戻す）
+function paintFaceSelection() {
+  const rect = activeSel().rect;
+  const sel = document.getElementById('face-sel');
+  sel.style.display = rect ? 'block' : 'none';
+  document.getElementById('face-hint').style.display = rect ? 'none' : 'flex';
+  if (!rect) return;
+  sel.style.left = (rect.x * 100) + '%';
+  sel.style.top = (rect.y * 100) + '%';
+  sel.style.width = (rect.w * 100) + '%';
+  sel.style.height = (rect.h * 100) + '%';
+}
+
+// プレビュー枠の縦横比 = 現在のタブの面の縦横比（クロップモードなら縦動画 9:16）
+function applyFacePreviewSize() {
+  const geo = facePicker.geo;
+  if (!geo) return;
+  const box = document.getElementById('face-preview');
+  const h = Math.round(box.clientWidth * activePreviewH() / geo.seqW);
+  box.style.height = h + 'px';
+  // クロップモードは映像の上にタイトルバーが重なるので、その帯をプレビューに示す
+  // （タイトルなしならバー自体が無い。上のセーフエリアぶんは帯に含めない）
+  const band = document.getElementById('face-preview-titlebar');
+  const show = Boolean(activePanel().titleBand) && geo.titleBarHeight > 0;
+  band.style.display = show ? 'block' : 'none';
+  if (show) {
+    band.style.top = Math.round(h * (geo.mainTop - geo.titleBarHeight) / geo.seqH) + 'px';
+    band.style.height = Math.round(h * geo.titleBarHeight / geo.seqH) + 'px';
+  }
 }
 
 function closeFacePicker() {
@@ -1792,16 +2112,16 @@ async function refreshFaceGeometry() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title: card.querySelector('.clip-title-input').value,
-        splitTopRatio: parseInt(card.querySelector('.clip-split-top-ratio').value, 10),
+        splitTopRatio: parseFloat(document.getElementById('global-split-top-ratio').value),
+        theme: document.getElementById('global-theme').value,
       }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.status);
     facePicker.geo = await res.json();
-    const box = document.getElementById('face-preview');
-    box.style.height = Math.round(box.clientWidth * facePicker.geo.bottomH / facePicker.geo.seqW) + 'px';
-    if (facePicker.rect) updateFaceFit(); else showCurrentFraming();
+    applyFacePreviewSize();
+    if (activeSel().rect) updateFaceFit(); else showCurrentFraming();
   } catch (err) {
-    document.getElementById('face-status').textContent = `下段サイズを取得できませんでした: ${err.message}`;
+    document.getElementById('face-status').textContent = `パネルのサイズを取得できませんでした: ${err.message}`;
   }
 }
 
@@ -1816,7 +2136,7 @@ function loadFaceFrame() {
   img.onload = () => {
     document.getElementById('face-status').textContent = '';
     document.getElementById('face-preview-img').src = url;
-    if (facePicker.rect) updateFaceFit(); else showCurrentFraming();
+    if (activeSel().rect) updateFaceFit(); else showCurrentFraming();
   };
   img.src = url;
 }
@@ -1832,7 +2152,20 @@ function renderFaceFit(fit, isCurrent) {
   actual.style.width = (fit.window.w * sw) + 'px';
   actual.style.height = (fit.window.h * sh) + 'px';
 
-  // プレビューは静止画そのものを可視範囲だけ切り出して見せる（枠の比率 = 下段の比率）
+  // 点線枠は縦動画全体ぶんなので、そのうちタイトルバーに隠れる帯も静止画上に示す
+  const geo = facePicker.geo;
+  const aBand = document.getElementById('face-actual-band');
+  const bandOn = Boolean(activePanel().titleBand) && geo && geo.titleBarHeight > 0;
+  aBand.style.display = bandOn ? 'block' : 'none';
+  if (bandOn) {
+    const frameH = fit.window.h * sh;
+    aBand.style.left = (fit.window.x * sw) + 'px';
+    aBand.style.width = (fit.window.w * sw) + 'px';
+    aBand.style.top = (fit.window.y * sh + frameH * (geo.mainTop - geo.titleBarHeight) / geo.seqH) + 'px';
+    aBand.style.height = (frameH * geo.titleBarHeight / geo.seqH) + 'px';
+  }
+
+  // プレビューは静止画そのものを可視範囲だけ切り出して見せる（枠の比率 = その面の比率）
   const box = document.getElementById('face-preview');
   const pImg = document.getElementById('face-preview-img');
   const imgW = box.clientWidth / fit.window.w;
@@ -1843,61 +2176,68 @@ function renderFaceFit(fit, isCurrent) {
   pImg.style.left = (-fit.window.x * imgW) + 'px';
   pImg.style.top = (-fit.window.y * imgH) + 'px';
 
+  const panel = activePanel();
   document.getElementById('face-preview-label').textContent =
-    isCurrent ? '下段プレビュー（現在の設定）' : '下段プレビュー（適用後）';
-  document.getElementById('face-values').innerHTML =
-    `顔の位置: <b>${fit.cropX}</b>%<br>zoom: <b>${fit.faceCamZoom}</b>x<br>縦位置: <b>${fit.faceCamY}</b>%`;
+    panel.previewLabel + (isCurrent ? '（現在の設定）' : '（適用後）');
+  document.getElementById('face-values').innerHTML = panel.fields
+    .map(f => `${f.label}: <b>${f.fmt(fit[f.key])}</b>${f.unit}`).join('<br>');
+  const note = document.getElementById('face-note');
+  note.textContent = isCurrent ? '' : (fit.note || '');
+  note.style.display = note.textContent ? 'block' : 'none';
 }
 
 function updateFaceFit() {
-  const { rect, geo, srcAspect } = facePicker;
-  if (!rect || !geo) return;
-  facePicker.fit = fitFaceCam(rect, geo, srcAspect);
-  renderFaceFit(facePicker.fit, false);
-  document.getElementById('face-apply-btn').disabled = false;
+  const { geo, srcAspect } = facePicker;
+  const sel = activeSel();
+  if (!sel.rect || !geo) return;
+  sel.fit = activePanel().fit(sel.rect, geo, srcAspect);
+  renderFaceFit(sel.fit, false);
+  refreshFaceTabs();
 }
 
 // 何も囲っていない間は、そのクリップの現在の設定で何が映っているかを見せる
 function showCurrentFraming() {
   const { card, geo, srcAspect } = facePicker;
   if (!card || !geo || !document.getElementById('face-frame').naturalWidth) return;
-  const params = {
-    cropX: parseFloat(card.querySelector('.clip-crop-x').value),
-    faceCamZoom: parseFloat(card.querySelector('.clip-face-zoom').value),
-    faceCamY: parseFloat(card.querySelector('.clip-face-y').value),
-  };
-  renderFaceFit({ ...params, window: faceCamWindow(params, geo, srcAspect) }, true);
+  const panel = activePanel();
+  const params = {};
+  panel.fields.forEach(f => { params[f.key] = parseFloat(card.querySelector(f.input).value); });
+  renderFaceFit({ ...params, window: panel.window(params, geo, srcAspect) }, true);
 }
 
 function resetFaceSelection() {
-  facePicker.rect = null;
-  facePicker.fit = null;
-  document.getElementById('face-sel').style.display = 'none';
-  document.getElementById('face-hint').style.display = 'flex';
-  document.getElementById('face-apply-btn').disabled = true;
+  facePicker.sel[facePicker.target] = { rect: null, fit: null };
+  paintFaceSelection();
+  refreshFaceTabs();
   showCurrentFraming();
 }
 
+// 指定したタブぶんだけ反映する（上段だけ／下段だけ／両方）
 function applyFacePicker() {
-  const { card, fit } = facePicker;
-  if (!card || !fit) return;
+  const { card } = facePicker;
+  const picked = activeTargets().filter(t => facePicker.sel[t].fit).map(t => [t, facePicker.sel[t]]);
+  if (!card || !picked.length) return;
+  // cropX / faceCamZoom / faceCamY はクロップモードと二段構成モードで意味が違うので、
+  // 一括適用は同じモードのクリップだけを対象にする。
   const targets = document.getElementById('face-apply-all').checked
     ? Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card'))
+        .filter(c => cardVerticalMode(c) === facePicker.mode)
     : [card];
   targets.forEach(c => {
-    c.querySelector('.clip-crop-x').value = fit.cropX;
-    c.querySelector('.crop-x-val').textContent = fit.cropX;
-    c.querySelector('.clip-face-zoom').value = fit.faceCamZoom;
-    c.querySelector('.face-zoom-val').textContent = fit.faceCamZoom.toFixed(2);
-    c.querySelector('.clip-face-y').value = fit.faceCamY;
-    c.querySelector('.face-y-val').textContent = fit.faceCamY;
+    picked.forEach(([name, s]) => {
+      FACE_PANELS[name].fields.forEach(f => {
+        const input = c.querySelector(f.input);
+        if (!input) return;
+        input.value = s.fit[f.key];
+        c.querySelectorAll(f.out).forEach(el => { el.textContent = f.fmt(s.fit[f.key]); });
+      });
+    });
   });
   closeFacePicker();
 }
 
 function initFacePicker() {
   const stage = document.getElementById('face-stage');
-  const sel = document.getElementById('face-sel');
   let dragging = false, ox = 0, oy = 0;
 
   const norm = e => {
@@ -1907,16 +2247,14 @@ function initFacePicker() {
       y: Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1),
     };
   };
+  // 描いた矩形は現在のタブの選択として持つ
   const draw = (a, b) => {
     const rect = {
       x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
       w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y),
     };
-    sel.style.display = 'block';
-    sel.style.left = (rect.x * 100) + '%';
-    sel.style.top = (rect.y * 100) + '%';
-    sel.style.width = (rect.w * 100) + '%';
-    sel.style.height = (rect.h * 100) + '%';
+    activeSel().rect = rect;
+    paintFaceSelection();
     return rect;
   };
 
@@ -1927,12 +2265,11 @@ function initFacePicker() {
     stage.setPointerCapture(e.pointerId);
     const p = norm(e);
     ox = p.x; oy = p.y;
-    document.getElementById('face-hint').style.display = 'none';
     draw({ x: ox, y: oy }, p);
   });
   stage.addEventListener('pointermove', e => {
     if (!dragging) return;
-    facePicker.rect = draw({ x: ox, y: oy }, norm(e));
+    draw({ x: ox, y: oy }, norm(e));
     updateFaceFit();
   });
   const finish = e => {
@@ -1941,11 +2278,14 @@ function initFacePicker() {
     const rect = draw({ x: ox, y: oy }, norm(e));
     // クリックだけ（ドラッグ幅ゼロ）は選択解除として扱う
     if (rect.w < 0.01 || rect.h < 0.01) { resetFaceSelection(); return; }
-    facePicker.rect = rect;
     updateFaceFit();
   };
   stage.addEventListener('pointerup', finish);
   stage.addEventListener('pointercancel', finish);
+
+  document.querySelectorAll('#face-tabs .face-tab').forEach(b => {
+    b.addEventListener('click', () => setFaceTarget(b.dataset.target));
+  });
 
   const range = document.getElementById('face-t-range');
   let seekTimer = null;
@@ -2065,7 +2405,11 @@ function toggleSelectAll() {
 }
 
 function readGridClips() {
-  const globalSrcAspect = parseFloat(document.getElementById('p4-src-orientation').value) || phaseOut.srcAspect || null;
+  const globalSrcAspect = phaseOut.srcAspect || null;
+  const globalCaptionSize = parseInt(document.getElementById('global-caption-size').value, 10);
+  const globalSplitTopRatio = parseFloat(document.getElementById('global-split-top-ratio').value);
+  const globalTheme = document.getElementById('global-theme').value;
+  const globalCaptionEffectsEnabled = document.getElementById('global-caption-effects').checked;
   return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => {
     const cutIntervals = JSON.parse(c.dataset.cutIntervals || 'null');
     const cardSrcAspect = parseFloat(c.dataset.srcAspect) || globalSrcAspect;
@@ -2073,18 +2417,19 @@ function readGridClips() {
       title: c.querySelector('.clip-title-input').value,
       start_sec: parseSec(c.querySelector('.t-start').value),
       end_sec:   parseSec(c.querySelector('.t-end').value),
-      vertical: c.querySelector('.clip-vertical').checked,
+      vertical: globalIsVertical(),
       verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'split',
-      captionFontSize: parseInt(c.querySelector('.clip-caption-size').value, 10),
-      captionEffect: c.dataset.captionEffect || undefined,
+      captionFontSize: globalCaptionSize,
+      captionEffect: globalCaptionEffectsEnabled ? (c.dataset.captionEffect || undefined) : undefined,
+      captionEffectsEnabled: globalCaptionEffectsEnabled,
       cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
       faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
       faceCamY: parseInt(c.querySelector('.clip-face-y').value, 10),
-      splitTopRatio: parseInt(c.querySelector('.clip-split-top-ratio').value, 10),
+      splitTopRatio: globalSplitTopRatio,
       mainZoom: parseFloat(c.querySelector('.clip-main-zoom').value),
       mainCropX: parseInt(c.querySelector('.clip-main-crop-x').value, 10),
       mainCropY: parseInt(c.querySelector('.clip-main-crop-y').value, 10),
-      theme: c.querySelector('.clip-theme').value,
+      theme: globalTheme,
       reason: '',
     };
     if (cutIntervals) {
@@ -2323,26 +2668,11 @@ function isVideoFile(f) {
   return VIDEO_EXTS.has(f.name.split('.').pop().toLowerCase());
 }
 
-// ── Source orientation helpers ─────────────────────────────────────────────
+// ── Source orientation ─────────────────────────────────────────────────────
+// 常にサーバー側の自動検出 (app.py の get_video_dimensions) 結果を SSE で受け取る。
+// 手動の向き指定 UI はなく、API の src_aspect オーバーライドのみが残っている。
 function setSrcAspect(aspect) {
   phaseOut.srcAspect = aspect;
-  const sel = document.getElementById('p4-src-orientation');
-  const detected = document.getElementById('p4-src-detected');
-  if (!aspect) { detected.textContent = ''; return; }
-  const isPortrait = aspect < 1;
-  detected.textContent = `検出: ${isPortrait ? '縦動画' : '横動画'} (${aspect.toFixed(4)})`;
-  // Pre-select the matching option if user hasn't manually chosen yet
-  if (!sel.value) {
-    if (Math.abs(aspect - 16/9) < 0.01) sel.value = '1.7778';
-    else if (Math.abs(aspect - 9/16) < 0.01) sel.value = '0.5625';
-    else if (Math.abs(aspect - 1) < 0.01) sel.value = '1';
-    // else leave on "自動検出"
-  }
-}
-
-function onSrcOrientationChange() {
-  const val = parseFloat(document.getElementById('p4-src-orientation').value);
-  if (!isNaN(val)) phaseOut.srcAspect = val;
 }
 
 // 無音カット閾値欄の表示切替
@@ -2497,13 +2827,12 @@ async function loadThemes() {
 }
 
 function refreshThemeSelects() {
-  document.querySelectorAll('#ph4-clips-grid .clip-theme').forEach(sel => {
-    const current = sel.value || sel.closest('.clip-card').dataset.theme;
-    sel.innerHTML = Object.entries(THEME_DATA.themes)
-      .map(([k, v]) => `<option value="${k}" ${current === k ? 'selected' : ''}>${escHtml(v.label)}</option>`)
-      .join('');
-    if (!THEME_DATA.themes[current]) sel.value = THEME_DATA.default;
-  });
+  const sel = document.getElementById('global-theme');
+  const current = sel.value || THEME_DATA.default;
+  sel.innerHTML = Object.entries(THEME_DATA.themes)
+    .map(([k, v]) => `<option value="${k}" ${current === k ? 'selected' : ''}>${escHtml(v.label)}</option>`)
+    .join('');
+  if (!THEME_DATA.themes[current]) sel.value = THEME_DATA.default;
 }
 
 function openThemeManager() {
@@ -2520,7 +2849,7 @@ function renderThemeList() {
   const list = document.getElementById('theme-list');
   list.innerHTML = Object.entries(THEME_DATA.themes).map(([id, t]) => {
     const isDefault = id === THEME_DATA.default;
-    const sourceLabel = t.source === 'builtin' ? '組み込み' : (t.source === 'override' ? '組み込み（編集済み）' : 'カスタム');
+    const sourceLabel = t.source === 'builtin' ? '組み込み' : 'カスタム';
     return `
     <div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:8px">
       <div style="width:64px;height:36px;border-radius:6px;flex-shrink:0;background:${t.titleBackground}"></div>
@@ -2533,7 +2862,6 @@ function renderThemeList() {
       </div>
       ${!isDefault ? `<button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="setDefaultTheme('${id}')">既定にする</button>` : ''}
       <button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="openThemeEditor('${id}')">編集</button>
-      ${t.source === 'override' ? `<button class="btn-secondary" style="font-size:11px;padding:6px 10px" onclick="resetThemeItem('${id}')">元に戻す</button>` : ''}
       ${t.source === 'custom' ? `<button class="btn-danger" onclick="deleteThemeItem('${id}')">削除</button>` : ''}
     </div>
   `;
@@ -2546,15 +2874,6 @@ async function setDefaultTheme(id) {
   THEME_DATA = await res.json();
   refreshThemeSelects();
   renderThemeList();
-}
-
-async function resetThemeItem(id) {
-  if (!confirm('編集内容を破棄して組み込みの初期値に戻しますか？')) return;
-  const res = await fetch(`/api/themes/${id}/reset`, { method: 'POST' });
-  if (res.ok) {
-    await loadThemes();
-    renderThemeList();
-  }
 }
 
 let editingThemeId = null;
@@ -2571,6 +2890,35 @@ function _hexToRgb(hex) {
   const v = (hex || '#000000').replace('#', '');
   return [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
 }
+
+function _mixHex(hex1, hex2, t) {
+  const [r1, g1, b1] = _hexToRgb(hex1);
+  const [r2, g2, b2] = _hexToRgb(hex2);
+  const mix = (a, b) => Math.round(a + (b - a) * t);
+  return '#' + [mix(r1, r2), mix(g1, g2), mix(b1, b2)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+// te-bg の生CSS文字列（3色以上のグラデーションもありうる）から te-bg-color1/2
+// ピッカー用に最初と最後の色だけ拾う。見つからなければ既定値のまま。
+function _extractGradientColors(bg) {
+  // 6桁hexのみ対象。<input type="color"> は3桁hexを受け付けないため。
+  const matches = (bg || '').match(/#[0-9a-fA-F]{6}/g);
+  if (!matches || matches.length === 0) return null;
+  return { c1: matches[0], c2: matches[matches.length - 1] };
+}
+
+// タイトル背景のグラデーションパターン。te-bg-color1 / te-bg-color2 の2色から
+// 実際の CSS background 値を組み立てる（放射状・円錐系は既存テーマの配色構造を流用）。
+const GRADIENT_PATTERNS = {
+  'linear-h': (c1, c2) => `linear-gradient(to right, ${c1} 0%, ${c2} 100%)`,
+  'linear-v': (c1, c2) => `linear-gradient(to bottom, ${c1} 0%, ${c2} 100%)`,
+  'linear-diag1': (c1, c2) => `linear-gradient(135deg, ${c1} 0%, ${c2} 100%)`,
+  'linear-diag2': (c1, c2) => `linear-gradient(45deg, ${c1} 0%, ${c2} 100%)`,
+  'linear-3stop': (c1, c2) => `linear-gradient(to right, ${c1} 0%, ${_mixHex(c1, c2, 0.5)} 50%, ${c2} 100%)`,
+  'radial-center': (c1, c2) => `radial-gradient(circle at center, ${c1} 0%, ${c2} 100%)`,
+  'radial-left': (c1, c2) => `radial-gradient(ellipse 220% 100% at 12% 50%, ${c1} 0%, ${c2} 100%)`,
+  'conic': (c1, c2) => `conic-gradient(from 180deg at 50% 50%, ${c1}, ${c2}, ${c1})`,
+};
 
 const FONT_FAMILIES = {
   mochiy: '"Mochiy Pop One", "Zen Maru Gothic", sans-serif',
@@ -2601,11 +2949,17 @@ function openThemeEditor(themeId) {
 
   document.getElementById('te-label').value = t ? t.label : '';
   document.getElementById('te-bg').value = t ? t.titleBackground : 'linear-gradient(to right, #FF1493 0%, #B200FF 100%)';
+  const gradColors = t ? _extractGradientColors(t.titleBackground) : null;
+  document.getElementById('te-bg-color1').value = gradColors ? gradColors.c1 : '#ff1493';
+  document.getElementById('te-bg-color2').value = gradColors ? gradColors.c2 : '#b200ff';
   document.getElementById('te-title-text').value = t ? t.titleTextColor : '#FFFFFF';
   document.getElementById('te-title-accent').value = t ? t.titleAccentColor : '#880055';
   document.getElementById('te-caption-text').value = t ? t.captionTextColor : '#FFFFFF';
   document.getElementById('te-caption-active').value = t ? t.captionActiveColor : '#FF4DB3';
   document.getElementById('te-caption-font').value = t ? (t.captionFont || 'mochiy') : 'mochiy';
+  document.getElementById('te-title-font').value = t ? (t.titleFont || 'rounded') : 'rounded';
+  document.getElementById('te-title-bar-height').value = t && t.titleBarMinHeight != null ? t.titleBarMinHeight : 280;
+  document.getElementById('te-title-margin').value = t && t.titleTopMargin != null ? t.titleTopMargin : 5;
   const glow = _rgbaToHexAlpha(t ? t.captionActiveGlow : 'rgba(255, 77, 179, 0.6)');
   document.getElementById('te-glow-color').value = glow.hex;
   document.getElementById('te-glow-alpha').value = glow.alpha;
@@ -2623,7 +2977,9 @@ function closeThemeEditor() {
 function applyGradientPreset() {
   const c1 = document.getElementById('te-bg-color1').value;
   const c2 = document.getElementById('te-bg-color2').value;
-  document.getElementById('te-bg').value = `linear-gradient(to right, ${c1} 0%, ${c2} 100%)`;
+  const patternKey = document.getElementById('te-bg-pattern').value;
+  const build = GRADIENT_PATTERNS[patternKey] || GRADIENT_PATTERNS['linear-h'];
+  document.getElementById('te-bg').value = build(c1, c2);
   updateThemePreview();
 }
 
@@ -2639,24 +2995,151 @@ function collectThemeForm() {
     captionActiveColor: document.getElementById('te-caption-active').value,
     captionActiveGlow: `rgba(${r}, ${g}, ${b}, ${alpha})`,
     captionFont: document.getElementById('te-caption-font').value,
+    titleFont: document.getElementById('te-title-font').value,
+    titleBarMinHeight: parseInt(document.getElementById('te-title-bar-height').value, 10),
+    titleTopMargin: parseFloat(document.getElementById('te-title-margin').value),
   };
+}
+
+// ── テーマプレビュー ──────────────────────────────────────────────────────────
+// 実際にレンダリングされる縦動画（1080×1920）のレイアウトを縮小再現する。
+// calcTitleBar() / TitleBar（ClipComposition.tsx）の JS 移植 — premiere_export.py の
+// _calc_title_bar_height() と合わせて計3箇所目の移植。3つとも値を同期させること。
+const TP_TITLE_H_PADDING = 4;
+const TP_VERTICAL_PADDING = 12;
+const TP_MAX_TITLE_FONT_PX = 140;
+const TP_CANVAS_W = 1080, TP_CANVAS_H = 1920;
+const TP_PREVIEW_W = 240;
+const TP_SAMPLE_TITLE = 'サンプルタイトルです';
+const TP_CROP_CAPTION_PADDING_BOTTOM = 260; // ClipComposition の CROP_CAPTION_PADDING_BOTTOM
+
+function tpEffectiveWidth(s) {
+  let w = 0;
+  for (const ch of s) w += ch.codePointAt(0) < 256 ? 0.55 : 1.0;
+  return w;
+}
+
+function tpAutoSplitTitle(title, usableWidth, maxFontPx) {
+  if (title.includes('\n')) return title;
+  const totalEm = tpEffectiveWidth(title);
+  if (totalEm * maxFontPx <= usableWidth) return title;
+  let bestIdx = 1, bestMax = Infinity;
+  for (let i = 1; i < title.length; i++) {
+    const leftEm = tpEffectiveWidth(title.slice(0, i));
+    const maxEm = Math.max(leftEm, totalEm - leftEm);
+    if (maxEm < bestMax) { bestMax = maxEm; bestIdx = i; }
+  }
+  return `${title.slice(0, bestIdx)}\n${title.slice(bestIdx)}`;
+}
+
+function tpCalcTitleBar(title, containerWidth, minBarHeight) {
+  if (!title) return { titleBarHeight: 0, titleFontSize: 0, displayTitle: '' };
+  const usableWidth = containerWidth - TP_TITLE_H_PADDING * 2;
+  const displayTitle = tpAutoSplitTitle(title, usableWidth, TP_MAX_TITLE_FONT_PX);
+  const lines = displayTitle.split('\n');
+  const effectiveLongest = lines.reduce((m, l) => Math.max(m, tpEffectiveWidth(l)), 0);
+  const fsByWidth = effectiveLongest > 0 ? usableWidth / effectiveLongest : TP_MAX_TITLE_FONT_PX;
+  const titleFontSize = Math.min(TP_MAX_TITLE_FONT_PX, Math.floor(fsByWidth));
+  const autoWrapLines = Math.ceil((effectiveLongest * titleFontSize) / usableWidth);
+  const estimatedLines = Math.max(lines.length, autoWrapLines, 2);
+  const titleBarHeight = Math.max(
+    minBarHeight,
+    Math.round(titleFontSize * 1.2 * estimatedLines + TP_VERTICAL_PADDING * 2),
+  );
+  return { titleBarHeight, titleFontSize, displayTitle };
+}
+
+// 8方向アウトライン風 text-shadow（CaptionPage.tsx の outline() / TEXT_SHADOW を再現）
+function tpOutlineShadow(color, size) {
+  return [
+    `-${size}px -${size}px 0 ${color}`, ` ${size}px -${size}px 0 ${color}`,
+    `-${size}px  ${size}px 0 ${color}`, ` ${size}px  ${size}px 0 ${color}`,
+    ` 0px  ${size}px 0 ${color}`, ` 0px -${size}px 0 ${color}`,
+    ` ${size}px  0px 0 ${color}`, `-${size}px  0px 0 ${color}`,
+  ].join(',');
 }
 
 function updateThemePreview() {
   const t = collectThemeForm();
-  const fontFam = FONT_FAMILIES[t.captionFont] || 'sans-serif';
-  const fontWeight = FONT_WEIGHTS[t.captionFont] || 'bold';
   document.getElementById('te-glow-alpha-val').textContent = document.getElementById('te-glow-alpha').value;
-  document.getElementById('theme-preview').innerHTML = `
-    <div style="padding:14px 16px;background:${t.titleBackground}">
-      <span style="font-family:'Zen Maru Gothic', sans-serif;font-weight:900;font-size:20px;color:${t.titleTextColor};-webkit-text-stroke:2px ${t.titleAccentColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">サンプルタイトル</span>
-    </div>
-    <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;font-family:${fontFam};font-weight:${fontWeight};font-size:22px;background:#151015">
-      <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">これは</span>
-      <span style="color:${t.captionActiveColor};text-shadow:3px 3px 0 ${t.titleAccentColor}, 0 0 12px ${t.captionActiveGlow}">字幕</span>
-      <span style="color:${t.captionTextColor};text-shadow:3px 3px 0 ${t.titleAccentColor}">プレビューです</span>
+  document.getElementById('te-title-bar-h-val').textContent = t.titleBarMinHeight;
+  document.getElementById('te-title-margin-val').textContent = t.titleTopMargin;
+
+  const scale = TP_PREVIEW_W / TP_CANVAS_W;
+  const previewH = Math.round(TP_CANVAS_H * scale);
+  const safeTop = Math.round(TP_CANVAS_H * (t.titleTopMargin / 100));
+  const { titleBarHeight, titleFontSize, displayTitle } =
+    tpCalcTitleBar(TP_SAMPLE_TITLE, TP_CANVAS_W, t.titleBarMinHeight);
+
+  // 値を innerHTML の文字列に埋め込むと、フォント名のダブルクォートが style 属性を
+  // 破壊して以降の指定が全て無効になる（例: font-family:"Kaisei Decol", ...) ため、
+  // 骨組みだけ innerHTML で組んで、値は必ず .style プロパティ経由で設定する。
+  const preview = document.getElementById('theme-preview');
+  preview.innerHTML = `
+    <div id="tp-canvas" style="position:relative;overflow:hidden;border-radius:6px;background:#111;flex-shrink:0">
+      <div id="tp-titlebar" style="position:absolute;left:0;display:flex;align-items:center;justify-content:center;box-sizing:border-box">
+        <div id="tp-titletext" style="text-align:center;white-space:pre-wrap"></div>
+      </div>
+      <div id="tp-captions" style="position:absolute;left:0;display:flex;justify-content:center;flex-wrap:wrap;box-sizing:border-box"></div>
     </div>
   `;
+
+  const canvas = document.getElementById('tp-canvas');
+  canvas.style.width = TP_PREVIEW_W + 'px';
+  canvas.style.height = previewH + 'px';
+
+  const bar = document.getElementById('tp-titlebar');
+  bar.style.top = Math.round(safeTop * scale) + 'px';
+  bar.style.width = '100%';
+  bar.style.height = Math.round(titleBarHeight * scale) + 'px';
+  bar.style.background = t.titleBackground;
+  const barPadV = Math.max(1, Math.round(TP_VERTICAL_PADDING * scale));
+  const barPadH = Math.max(1, Math.round(TP_TITLE_H_PADDING * scale));
+  bar.style.padding = `${barPadV}px ${barPadH}px`;
+
+  const titleFontFam = FONT_FAMILIES[t.titleFont] || FONT_FAMILIES.rounded;
+  const titleFontWeight = FONT_WEIGHTS[t.titleFont] || 900;
+  const titleStroke = Math.max(1, Math.round(5 * scale));
+  const titleShadowOffset = Math.max(1, Math.round(8 * scale));
+  const titleText = document.getElementById('tp-titletext');
+  titleText.style.fontFamily = titleFontFam;
+  titleText.style.fontWeight = titleFontWeight;
+  titleText.style.fontSize = Math.max(6, Math.round(titleFontSize * scale)) + 'px';
+  titleText.style.lineHeight = '1.2';
+  titleText.style.color = t.titleTextColor;
+  titleText.style.webkitTextStroke = `${titleStroke}px ${t.titleAccentColor}`;
+  titleText.style.textShadow = `${titleShadowOffset}px ${titleShadowOffset}px 0 ${t.titleAccentColor}`;
+  titleText.textContent = displayTitle;
+
+  const capFontFam = FONT_FAMILIES[t.captionFont] || 'sans-serif';
+  const capFontWeight = FONT_WEIGHTS[t.captionFont] || 700;
+  const capFontSize = Math.max(6, Math.round(96 * scale));
+  const captions = document.getElementById('tp-captions');
+  captions.style.bottom = Math.round(TP_CROP_CAPTION_PADDING_BOTTOM * scale) + 'px';
+  captions.style.padding = `0 ${Math.round(20 * scale)}px`;
+  captions.style.gap = Math.round(0.3 * capFontSize) + 'px';
+  captions.style.fontFamily = capFontFam;
+  captions.style.fontWeight = capFontWeight;
+  captions.style.fontSize = capFontSize + 'px';
+
+  const outlinePx = Math.max(1, Math.round(3 * scale));
+  const baseShadow = tpOutlineShadow('#000000', outlinePx);
+  const activeShadow = [
+    tpOutlineShadow('#FFFFFF', outlinePx),
+    `${Math.max(1, Math.round(5 * scale))}px ${Math.max(1, Math.round(5 * scale))}px 0 ${t.titleAccentColor}`,
+    `0 0 ${Math.max(2, Math.round(15 * scale))}px ${t.captionActiveGlow}`,
+  ].join(',');
+
+  const mkCaptionSpan = (text, color, shadow) => {
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.color = color;
+    span.style.textShadow = shadow;
+    return span;
+  };
+  captions.appendChild(mkCaptionSpan('これは', t.captionTextColor, baseShadow));
+  captions.appendChild(mkCaptionSpan('字幕', t.captionActiveColor, activeShadow));
+  captions.appendChild(mkCaptionSpan('プレビューです', t.captionTextColor, baseShadow));
 }
 
 document.getElementById('theme-editor').addEventListener('input', updateThemePreview);

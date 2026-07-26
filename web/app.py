@@ -4,7 +4,9 @@
 import asyncio
 import json
 import shutil
+import socket
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,8 @@ TRANSCRIPTIONS_DIR = DATA_DIR / "transcriptions"
 REMOTION_DIR = PROJECT_DIR / "remotion"
 # Studio 専用の使い捨てソースツリー（remotion/src のコピー）— _sync_studio_src() 参照
 STUDIO_SRC_DIR = REMOTION_DIR / "studio-src"
+# remotion.config.ts の Config.setStudioPort(3009) と一致させること
+STUDIO_PORT = 3009
 CLIPS_DIR = DATA_DIR / "remotion" / "out"
 EXPORTS_DIR = DATA_DIR / "exports"
 
@@ -77,6 +81,9 @@ async def _monitor_heartbeat():
         # 最後のハートビートから25秒以上経過していたらシャットダウン
         if time.time() - last_heartbeat_time > 25.0:
             print("No active clients detected (heartbeat lost). Shutting down server...")
+            # os._exit() は atexit/shutdown ハンドラを一切実行しないため、Studio を先に
+            # 明示的に止めておかないと npx の孫プロセスがポート 3009 を握ったまま孤児化する。
+            _shutdown_studio_proc()
             try:
                 os.kill(os.getpid(), signal.SIGINT)
             except Exception:
@@ -87,6 +94,11 @@ async def _monitor_heartbeat():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(_monitor_heartbeat())
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    _shutdown_studio_proc()
 
 
 def _new_job(req: "StartReq") -> str:
@@ -108,12 +120,14 @@ def _new_job(req: "StartReq") -> str:
         "_language": req.language,
         "_stop_after": req.stop_after,
         "_chat_only": req.chat_only,
+        "_video_quality": req.video_quality,
         "_in_video": req.video_path,
         "_in_transcription": req.transcription_path,
         "_transcription_prompt": req.transcription_prompt,
         "_in_clips": req.clips_path,
         "_audio_mode": req.audio_mode,
         "_transcription_model": req.transcription_model,
+        "_gemini_model": req.gemini_model,
         "_trim_start_sec": req.trim_start_min * 60 if req.trim_start_min is not None else None,
         "_trim_end_sec": req.trim_end_min * 60 if req.trim_end_min is not None else None,
         "_extra_prompt": req.extra_prompt,
@@ -170,8 +184,10 @@ def _run_pipeline(job_id: str) -> None:
         elif job["_url"]:
             job["stage"] = "downloading"
             log(f"▶ Downloading: {job['_url']}")
+            quality = job.get("_video_quality", pl.DEFAULT_VIDEO_QUALITY)
+            log(f"▶ 画質: {'フルHD (1080p)' if quality == '1080' else '720p'}")
             video_path, chat_path = pl.download_video(
-                job["_url"], DOWNLOADS_DIR, log,
+                job["_url"], DOWNLOADS_DIR, log, quality=quality,
             )
             job["video_path"] = str(video_path)
             log(f"✓ Video: {video_path.name}")
@@ -262,7 +278,9 @@ def _run_pipeline(job_id: str) -> None:
             job["stage"] = "suggesting"
             log("▶ Asking Gemini for clip suggestions...")
             assert result is not None
-            job["clips"] = pl.suggest_clips_from_result(result, chat_path, job.get("_extra_prompt"))
+            job["clips"] = pl.suggest_clips_from_result(
+                result, chat_path, job.get("_extra_prompt"), job.get("_gemini_model")
+            )
             clips_file = pl.save_clips(job["clips"], t_path)
             job["clips_path"] = str(clips_file)
             log(f"✓ {len(job['clips'])} 件のクリップを提案 → {clips_file.name}")
@@ -314,12 +332,14 @@ class StartReq(BaseModel):
     language: str = "ja"
     stop_after: str | None = None          # "download" → stop after phase 1
     chat_only: bool = False                # チャットのみダウンロード（動画スキップ）
+    video_quality: str = "1080"            # ダウンロード画質: "720" | "1080"（既定はフルHD）
     # Skip phases by providing existing files (filenames relative to their dirs)
     video_path: str | None = None          # skip download
     transcription_path: str | None = None  # skip transcription
     transcription_prompt: str | None = None  # initial prompt for Whisper transcription
     audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
     transcription_model: str = "elevenlabs"  # transcription backend: "elevenlabs" | "groq" (Gemini is suggestion-only)
+    gemini_model: str | None = None        # clip-suggestion model override (default: pipeline.GEMINI_MODEL_ID)
     trim_start_min: float | None = None  # clip video before transcription (minutes)
     trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
@@ -376,6 +396,9 @@ class ThemeReq(BaseModel):
     captionActiveColor: str
     captionActiveGlow: str
     captionFont: str | None = None
+    titleFont: str | None = None
+    titleBarMinHeight: float | None = None
+    titleTopMargin: float | None = None
 
 
 @app.get("/api/themes")
@@ -386,7 +409,7 @@ def list_themes():
 @app.post("/api/themes")
 def create_theme(req: ThemeReq):
     theme_id, theme = theme_store.create_theme(req.model_dump())
-    return {"id": theme_id, "theme": {**theme, "source": "custom"}}
+    return {"id": theme_id, "theme": theme}
 
 
 @app.put("/api/themes/default/{theme_id}")
@@ -398,26 +421,13 @@ def set_default_theme(theme_id: str):
     return theme_store.list_themes()
 
 
-@app.post("/api/themes/{theme_id}/reset")
-def reset_theme(theme_id: str):
-    try:
-        theme = theme_store.reset_theme(theme_id)
-    except ValueError:
-        raise HTTPException(400, "組み込みテーマ以外はリセットできません")
-    except KeyError:
-        raise HTTPException(404, "このテーマは変更されていません")
-    return {"id": theme_id, "theme": {**theme, "source": "builtin"}}
-
-
 @app.put("/api/themes/{theme_id}")
 def update_theme(theme_id: str, req: ThemeReq):
     try:
         theme = theme_store.update_theme(theme_id, req.model_dump())
     except KeyError:
         raise HTTPException(404, "テーマが見つかりません")
-    builtin, _ = theme_store.load_builtin_themes()
-    source = "override" if theme_id in builtin else "custom"
-    return {"id": theme_id, "theme": {**theme, "source": source}}
+    return {"id": theme_id, "theme": theme}
 
 
 @app.delete("/api/themes/{theme_id}")
@@ -425,7 +435,7 @@ def delete_theme(theme_id: str):
     try:
         theme_store.delete_theme(theme_id)
     except ValueError:
-        raise HTTPException(400, "組み込みテーマは削除できません（「元に戻す」を使用してください）")
+        raise HTTPException(400, "組み込みテーマは削除できません")
     except KeyError:
         raise HTTPException(404, "テーマが見つかりません")
     return {"ok": True}
@@ -715,20 +725,33 @@ async def upload_video(file: UploadFile = File(...)):
 
 class SplitGeometryReq(BaseModel):
     title: str = ""
-    splitTopRatio: int = 5
+    splitTopRatio: float = 4.5
+    theme: str | None = None
 
 
 @app.post("/api/split-geometry")
 def split_geometry(req: SplitGeometryReq):
-    """Panel bounds of 二段構成モード for the face-position picker.
+    """Panel bounds of 二段構成モード for the position picker.
 
-    The picker turns a rectangle drawn on a video frame into cropX / faceCamZoom /
-    faceCamY, which needs the bottom panel's height — and that depends on the title
-    bar, whose height only premiere_export's port of calcTitleBar() can work out.
+    The picker turns a rectangle drawn on a video frame into that panel's zoom and
+    position (上段: mainZoom / mainCropX / mainCropY, 下段: faceCamZoom / cropX /
+    faceCamY), which needs the panel's height — and both depend on the title bar,
+    whose height only premiere_export's port of calcTitleBar() can work out.
+
+    The title bar's height/margin can be overridden per theme (titleBarMinHeight /
+    titleTopMargin), so `theme` selects which one to resolve them from — same key
+    the clip cards send as `theme` when building render props.
     """
     import premiere_export as px
 
-    g = px.split_geometry(req.title, max(1, min(9, req.splitTopRatio)))
+    theme_colors = theme_store.resolve_theme_props(req.theme).get("themeColors") or {}
+    top_margin = theme_colors.get("titleTopMargin")
+    safe_top_ratio = (top_margin / 100) if top_margin is not None else px.SHORTS_SAFE_TOP_RATIO
+    title_bar_min_height = theme_colors.get("titleBarMinHeight") or px.MIN_TITLE_BAR_H
+    g = px.split_geometry(
+        req.title, max(1, min(9, req.splitTopRatio)),
+        safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,
+    )
     return {
         "seqW": g.seq_w,
         "seqH": g.seq_h,
@@ -797,7 +820,7 @@ def set_segment_comment(req: SegmentCommentReq):
 
 @app.get("/api/frame")
 def video_frame(video: str = Query(...), t: float = Query(0.0)):
-    """A single JPEG frame from a downloaded video, for the face-position picker."""
+    """A single JPEG frame from a downloaded video, for the position picker."""
     path = _resolve(Path(video).name, DOWNLOADS_DIR)
     if not path.exists():
         raise HTTPException(404, f"動画ファイルが見つかりません: {path.name}")
@@ -858,6 +881,77 @@ class StudioReq(BaseModel):
 
 
 _studio_video_dir: str | None = None  # public-dir the current Studio was started with
+
+
+def _port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _kill_process_on_port(port: int) -> None:
+    """Force-free a port that a previous, no-longer-tracked Studio process is still holding.
+
+    `npx remotion studio` spawns a real `node` process under the `npx` shim, and on --reload
+    restarts (or the packaged app's heartbeat auto-shutdown, which calls os._exit) the shim's
+    death doesn't take that child with it. The next launch then finds the port already bound
+    and Remotion Studio exits immediately — this recovers by finding and killing whatever is
+    actually listening, independent of our in-memory _studio_proc handle.
+    """
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, **cfg.no_window_kwargs()
+            ).stdout
+            pids = {
+                line.split()[-1]
+                for line in out.splitlines()
+                if f":{port}" in line and "LISTENING" in line
+            }
+            for pid in pids:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", pid], **cfg.no_window_kwargs())
+        else:
+            out = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True
+            ).stdout
+            for pid in out.split():
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+    except FileNotFoundError:
+        pass  # lsof/netstat unavailable — best-effort only
+
+
+def _shutdown_studio_proc() -> None:
+    """Kill the tracked Studio process (if any) so the server never exits leaving it orphaned."""
+    global _studio_proc
+    if _studio_proc and _studio_proc.poll() is None:
+        _terminate_studio_proc(_studio_proc)
+    _studio_proc = None
+
+
+def _terminate_studio_proc(proc: subprocess.Popen) -> None:
+    """Kill the whole `npx remotion studio` tree, not just the npx shim (see _kill_process_on_port)."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)], **cfg.no_window_kwargs()
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (ProcessLookupError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            if sys.platform != "win32":
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            else:
+                proc.kill()
+        except (ProcessLookupError, subprocess.SubprocessError):
+            pass
+
 
 # studio-src/ 側にだけ生成するファイル（src/ にはスタブを置く）
 _STUDIO_GENERATED = ("studioCompositions.tsx", "studioData.json")
@@ -954,11 +1048,13 @@ def _generate_studio_compositions(
     ]
 
     for i, clip in enumerate(clips):
+        effects_enabled = bool(clip.get("captionEffectsEnabled", True))
         captions = _pl.make_captions(
             segments,
             clip["start_sec"],
             clip["end_sec"],
             clip.get("captionEffect"),
+            effects_enabled=effects_enabled,
         )
         props: dict = {
             "videoSrc": video_src,
@@ -969,7 +1065,7 @@ def _generate_studio_compositions(
             "cropX": float(clip.get("cropX", 90)),
             "faceCamZoom": float(clip.get("faceCamZoom", 1.5)),
             "faceCamY": float(clip.get("faceCamY", 50)),
-            "splitTopRatio": int(clip.get("splitTopRatio", 5)),
+            "splitTopRatio": float(clip.get("splitTopRatio", 4.5)),
             "mainZoom": float(clip.get("mainZoom", 1.0)),
             "mainCropX": float(clip.get("mainCropX", 50)),
             "mainCropY": float(clip.get("mainCropY", 50)),
@@ -979,7 +1075,7 @@ def _generate_studio_compositions(
         }
         if clip.get("captionFontSize"):
             props["captionFontSize"] = int(clip["captionFontSize"])
-        if clip.get("captionEffect") in _pl.CAPTION_EFFECTS:
+        if effects_enabled and clip.get("captionEffect") in _pl.CAPTION_EFFECTS:
             props["captionEffect"] = clip["captionEffect"]
         if clip.get("captionFont"):
             props["captionFont"] = clip["captionFont"]
@@ -1070,13 +1166,32 @@ async def open_studio(req: StudioReq):
 
     if not studio_running or _studio_video_dir != video_dir:
         if studio_running:
-            _studio_proc.terminate()
-            try:
-                _studio_proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                _studio_proc.kill()
+            _terminate_studio_proc(_studio_proc)
+        _studio_proc = None
+
+        # 前回のプロセスをここまでで確実に止めていても、--reload によるワーカー再起動や
+        # パッケージ版のハートビート自動終了 (os._exit) を挟んだ場合は npx の孫プロセスだけが
+        # ポートを掴んだまま生き残ることがある。_studio_proc の状態に関係なくポートの実態を
+        # 見て、塞がっていれば起動前に強制的に空ける。
+        if _port_in_use(STUDIO_PORT):
+            _kill_process_on_port(STUDIO_PORT)
+            for _ in range(10):
+                if not _port_in_use(STUDIO_PORT):
+                    break
+                await asyncio.sleep(0.3)
 
         studio_log = DATA_DIR / "studio.log"
+        # 新しいセッション/プロセスグループで起動 — npx シムだけでなくその配下の
+        # node プロセスもまとめて確実に殺せるようにする（_terminate_studio_proc 参照）。
+        # Windows は creationflags がビットフラグなので no_window_kwargs() の値と OR で合成する
+        # （素直に dict をマージすると片方の creationflags が丸ごと上書きされてしまう）。
+        popen_kwargs = dict(cfg.no_window_kwargs())
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                popen_kwargs.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
         with open(studio_log, "w", encoding="utf-8") as logf:
             _studio_proc = subprocess.Popen(
                 [
@@ -1090,7 +1205,7 @@ async def open_studio(req: StudioReq):
                 cwd=REMOTION_DIR,
                 stdout=logf,
                 stderr=subprocess.STDOUT,
-                **cfg.no_window_kwargs(),
+                **popen_kwargs,
             )
         _studio_video_dir = video_dir
         await asyncio.sleep(4)
@@ -1107,7 +1222,7 @@ async def open_studio(req: StudioReq):
                 f"動作している場合は終了してから再度お試しください。\n{tail}",
             )
 
-    return {"url": "http://localhost:3009", "reverted": reverted}
+    return {"url": f"http://localhost:{STUDIO_PORT}", "reverted": reverted}
 
 
 class ConcatReq(BaseModel):

@@ -30,6 +30,23 @@ def get_data_dir() -> Path:
     return PROJECT_DIR
 
 
+def find_cookies_file(data_dir: Path | None = None) -> Path | None:
+    """Locate a cookies.txt-like file in the data dir.
+
+    Browser cookie-export extensions (e.g. "Get cookies.txt LOCALLY") often name the
+    exported file after the domain/host — "127.0.0.1_cookies.txt",
+    "www.youtube.com_cookies.txt" — rather than plain "cookies.txt". Accept any
+    filename ending in that suffix so users don't have to rename the export, still
+    preferring an exact "cookies.txt" match, then the most recently modified one.
+    """
+    d = data_dir if data_dir is not None else get_data_dir()
+    exact = d / "cookies.txt"
+    if exact.exists():
+        return exact
+    candidates = sorted(d.glob("*cookies.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
 def _config_path() -> Path:
     return get_data_dir() / "config.json"
 

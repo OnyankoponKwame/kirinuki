@@ -58,6 +58,35 @@ def _log(message: str) -> None:
         pass  # nowhere left to report this — data dir itself isn't writable
 
 
+_COOKIE_EXTENSION_CHROME_URL = (
+    "https://chromewebstore.google.com/detail/get-cookiestxt-locally/"
+    "cclelndahbckbenkjhflpdbgdldlbecc?hl=ja"
+)
+_COOKIE_EXTENSION_FIREFOX_URL = "https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/"
+
+
+def _cookie_guide_text(data_dir: Path) -> str:
+    return (
+        "【Cookieの手動保存手順】\n\n"
+        "ログインが必要な動画（年齢制限・メンバー限定など）をダウンロードするには、\n"
+        "手動で書き出したCookieが必要です。\n\n"
+        "1. ブラウザに「Get cookies.txt LOCALLY」拡張機能を追加します。\n"
+        f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n"
+        f"   Firefox: {_COOKIE_EXTENSION_FIREFOX_URL}\n\n"
+        "2. 拡張機能の管理画面で「シークレットモードでの実行を許可する」を有効にします。\n\n"
+        "3. シークレット（プライベート）ウィンドウを開き、YouTubeにログインします。\n\n"
+        "4. 同じタブで https://www.youtube.com/robots.txt を開きます。\n\n"
+        "5. 拡張機能のアイコンをクリックし「Export As」で書き出して、\n"
+        "   下記フォルダに保存してください。\n"
+        "   ファイル名は末尾が「cookies.txt」であれば自動で認識されます\n"
+        "   （例: 127.0.0.1_cookies.txt）。\n\n"
+        f"   {data_dir}\n\n"
+        "6. シークレットウィンドウを閉じてください。\n\n"
+        "※ Cookieを使いすぎるとアカウントがBANされるリスクがあります。\n"
+        "　 不要なときは使わない、メインのアカウントは使わないことをおすすめします。"
+    )
+
+
 def _show_error(message: str) -> None:
     _log(message)
     if sys.platform != "win32":
@@ -123,8 +152,8 @@ def main() -> None:
 
     _log("server ready, opening browser and data directory")
     webbrowser.open(f"http://{HOST}:{PORT}")
+    data_dir = cfg.get_data_dir()
     try:
-        data_dir = cfg.get_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
             os.startfile(str(data_dir))
@@ -138,24 +167,53 @@ def main() -> None:
     _log("showing server active dialog")
     import ctypes
     if sys.platform == "win32":
+        MB_YESNOCANCEL = 3
+        MB_ICONINFORMATION = 0x40
+        IDYES, IDNO = 6, 7
+
         while True:
-            # MB_YESNO = 4
+            # メインメニュー: [はい]=インストールフォルダを開く / [いいえ]=その他の操作 / [キャンセル]=終了
             ret = ctypes.windll.user32.MessageBoxW(
                 None,
                 "Kirinuki サーバーを実行中です。\n\n"
                 "・インストールフォルダ（bin/やweb/等）を開くには [はい] を押してください。\n"
-                "・アプリを終了してサーバーを停止するには [いいえ] を押してください。",
+                "・データフォルダを開く/Cookie保存手順を見るには [いいえ] を押してください。\n"
+                "・アプリを終了してサーバーを停止するには [キャンセル] を押してください。",
                 "Kirinuki サーバーマネージャー",
-                4,
+                MB_YESNOCANCEL,
             )
-            if ret == 6:  # IDYES
+            if ret == IDYES:
                 try:
                     os.startfile(str(APP_ROOT))
                 except Exception as e:
                     _log(f"failed to open install directory: {e}")
                 continue
-            else:
-                break
+            if ret == IDNO:
+                # サブメニュー: [はい]=データフォルダを開く / [いいえ]=Cookie保存手順を表示 / [キャンセル]=戻る
+                sub = ctypes.windll.user32.MessageBoxW(
+                    None,
+                    "・データフォルダ（cookies.txt の保存先）を開くには [はい] を押してください。\n"
+                    "・Cookieの手動保存手順を表示するには [いいえ] を押してください。\n"
+                    "・メインメニューに戻るには [キャンセル] を押してください。",
+                    "Kirinuki サーバーマネージャー — その他の操作",
+                    MB_YESNOCANCEL,
+                )
+                if sub == IDYES:
+                    try:
+                        data_dir.mkdir(parents=True, exist_ok=True)
+                        os.startfile(str(data_dir))
+                    except Exception as e:
+                        _log(f"failed to open data directory: {e}")
+                elif sub == IDNO:
+                    ctypes.windll.user32.MessageBoxW(
+                        None,
+                        _cookie_guide_text(data_dir),
+                        "Cookieの手動保存手順",
+                        MB_ICONINFORMATION,
+                    )
+                continue
+            # IDCANCEL、またはダイアログを閉じた場合 — 終了
+            break
     else:
         # win32以外はキー入力待機などの簡易ブロック
         _log("press enter to shutdown in non-windows")

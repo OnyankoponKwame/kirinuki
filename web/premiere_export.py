@@ -76,7 +76,7 @@ def _auto_split_title(title: str, usable_width: float) -> str:
     return f"{title[:best_idx]}\n{title[best_idx:]}"
 
 
-def _calc_title_bar_height(title: str, container_width: int) -> int:
+def _calc_title_bar_height(title: str, container_width: int, min_height: int = MIN_TITLE_BAR_H) -> int:
     if not title:
         return 0
     display = _auto_split_title(title, container_width - TITLE_H_PADDING * 2)
@@ -88,7 +88,7 @@ def _calc_title_bar_height(title: str, container_width: int) -> int:
     auto_wrap_lines = math.ceil(longest_em * font_size / usable_width)
     estimated_lines = max(len(lines), auto_wrap_lines, 2)
     return max(
-        MIN_TITLE_BAR_H,
+        min_height,
         _jsround(font_size * 1.2 * estimated_lines + VERTICAL_PADDING * 2),
     )
 
@@ -165,17 +165,29 @@ class SplitGeometry:
     bottom_h: int
 
 
-def split_geometry(title: str, split_top_ratio: int, seq_w: int = 1080, seq_h: int = 1920) -> SplitGeometry:
+def split_geometry(
+    title: str,
+    split_top_ratio: float,
+    seq_w: int = 1080,
+    seq_h: int = 1920,
+    safe_top_ratio: float = SHORTS_SAFE_TOP_RATIO,
+    title_bar_min_height: int = MIN_TITLE_BAR_H,
+) -> SplitGeometry:
     """Split-mode panel bounds — mirrors ClipComposition.tsx's 二段構成モード block.
 
-    Separated from compute_layers() because the face-position picker in the web UI
-    needs the bottom panel's height to turn a rectangle drawn on a frame into
-    cropX / faceCamZoom / faceCamY, and the title bar's height (which the panel
-    boundary depends on) is only derivable from the title text by this module's
-    port of calcTitleBar().
+    Separated from compute_layers() because the position picker in the web UI needs
+    the panel heights to turn a rectangle drawn on a frame into that panel's zoom and
+    position (上段: mainZoom / mainCropX / mainCropY, 下段: faceCamZoom / cropX /
+    faceCamY), and the title bar's height (which the panel boundary depends on) is
+    only derivable from the title text by this module's port of calcTitleBar().
+
+    `safe_top_ratio` / `title_bar_min_height` come from the clip's theme (see
+    theme_store.THEME_FIELDS' titleTopMargin / titleBarMinHeight) — both are
+    per-theme in ClipComposition.tsx, so they must be passed in here rather than
+    read off the module constants whenever a clip's theme overrides them.
     """
-    safe_top = _jsround(seq_h * SHORTS_SAFE_TOP_RATIO)
-    title_bar_h = _calc_title_bar_height(title, seq_w)
+    safe_top = _jsround(seq_h * safe_top_ratio)
+    title_bar_h = _calc_title_bar_height(title, seq_w, title_bar_min_height)
     main_top = safe_top + title_bar_h
     main_h = _jsround((seq_h - main_top) * split_top_ratio / 10)
     bottom_top = main_top + main_h
@@ -191,8 +203,13 @@ def split_geometry(title: str, split_top_ratio: int, seq_w: int = 1080, seq_h: i
     )
 
 
-def compute_layers(clip: dict, src_aspect: float) -> list[Layer]:
+def compute_layers(clip: dict, src_aspect: float, theme: dict | None = None) -> list[Layer]:
     """Reproduce ClipComposition's framing as a stack of positioned video layers.
+
+    `theme` (a resolved themeColors dict, see theme_store.resolve_theme_props) supplies
+    the titleTopMargin / titleBarMinHeight overrides that shift the split-mode panel
+    boundary — colors and fonts don't matter here since no title text is drawn (see
+    module docstring), but the gap it reserves still has to match Remotion's.
 
     Returned bottom-most first (V1, V2, ...).
     """
@@ -215,8 +232,13 @@ def compute_layers(clip: dict, src_aspect: float) -> list[Layer]:
         return [Layer("crop", left, top, scaled_w, scaled_h)]
 
     # Split: full-width panel on top, zoomed face-cam below.
+    theme = theme or {}
+    top_margin = theme.get("titleTopMargin")
+    safe_top_ratio = (top_margin / 100) if top_margin is not None else SHORTS_SAFE_TOP_RATIO
+    title_bar_min_height = theme.get("titleBarMinHeight") or MIN_TITLE_BAR_H
     geo = split_geometry(
-        str(clip.get("title", "")), int(clip.get("splitTopRatio", 5) or 5), seq_w, seq_h,
+        str(clip.get("title", "")), float(clip.get("splitTopRatio", 4.5) or 4.5), seq_w, seq_h,
+        safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,
     )
     main_top, main_h = geo.main_top, geo.main_h
     bottom_top, bottom_h = geo.bottom_top, geo.bottom_h
@@ -532,6 +554,7 @@ def export_package(
 ) -> Path:
     """Write the editing-material package and return its directory."""
     import pipeline as pl
+    import theme_store
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -556,7 +579,8 @@ def export_package(
             pl.remap_captions_to_cuts(raw_captions, keeps, start_sec)
         )
         clip_aspect = float(clip.get("srcAspect", src_aspect) or src_aspect)
-        layers = compute_layers(clip, clip_aspect)
+        theme_colors = theme_store.resolve_theme_props(clip.get("theme")).get("themeColors")
+        layers = compute_layers(clip, clip_aspect, theme_colors)
         seq_w, seq_h = sequence_size(clip)
 
         base = f"{idx:02d}_{_sanitize(str(clip.get('title', '')), f'clip_{idx:02d}')}"
