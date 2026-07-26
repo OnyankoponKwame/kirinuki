@@ -2653,7 +2653,19 @@ async function openInStudio() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ video_path: videoFile, transcription_path: transFile, clips }),
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const e = await res.json();
+        errMsg = e.detail || errMsg;
+      } catch (_) {
+        try {
+          const text = await res.text();
+          if (text) errMsg = text;
+        } catch (_) {}
+      }
+      throw new Error(errMsg);
+    }
     const { url, reverted } = await res.json();
     // Studio 上でずらした Offset/Scale 等の書き戻しは起動のたびに破棄される
     if (reverted && reverted.length) {

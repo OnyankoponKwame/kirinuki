@@ -21,11 +21,23 @@ def _no_window_kwargs() -> dict:
     return {}
 
 
+def _get_npx_cmd() -> list[str]:
+    if sys.platform == "win32":
+        return ["cmd", "/c", "npx"]
+    return ["npx"]
+
+
+def _get_npm_cmd() -> list[str]:
+    if sys.platform == "win32":
+        return ["cmd", "/c", "npm"]
+    return ["npm"]
+
+
 def ensure_remotion_installed() -> None:
     node_modules = REMOTION_DIR / "node_modules"
     if not node_modules.exists():
         print("Installing Remotion dependencies...")
-        subprocess.run(["npm", "install"], cwd=REMOTION_DIR, check=True, **_no_window_kwargs())
+        subprocess.run(_get_npm_cmd() + ["install"], cwd=REMOTION_DIR, check=True, **_no_window_kwargs())
 
 
 def make_captions(segments: list[dict], start_sec: float, end_sec: float) -> list[dict]:
@@ -38,10 +50,8 @@ def make_captions(segments: list[dict], start_sec: float, end_sec: float) -> lis
             continue
         captions.append({
             "text": seg.get("text", "").strip(),
-            "startMs": max(0.0, (seg_start - start_sec) * 1000),
-            "endMs": (min(seg_end, end_sec) - start_sec) * 1000,
-            "timestampMs": max(0.0, (seg_start - start_sec) * 1000),
-            "confidence": None,
+            "startMs": int((seg_start - start_sec) * 1000),
+            "endMs": int((seg_end - start_sec) * 1000),
         })
     return captions
 
@@ -60,11 +70,8 @@ def render_clip(
     end_sec = clip["end_sec"]
     title = clip.get("title", f"clip_{index:02d}")
 
-    # Symlink video into public/ (avoids copying large files)
-    video_link = PUBLIC_DIR / "clip_video.mp4"
-    if video_link.is_symlink() or video_link.exists():
-        video_link.unlink()
-    video_link.symlink_to(video_path.absolute())
+    # Copy input video to public/clip_video.mp4 for Remotion
+    shutil.copy2(video_path, PUBLIC_DIR / "clip_video.mp4")
 
     captions = make_captions(segments, start_sec, end_sec)
 
@@ -81,8 +88,7 @@ def render_clip(
     print(f"  {start_sec:.1f}s - {end_sec:.1f}s  →  {output_path.name}")
 
     subprocess.run(
-        [
-            "npx",
+        _get_npx_cmd() + [
             "remotion",
             "render",
             "ClipComposition",

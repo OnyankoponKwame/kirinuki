@@ -39,6 +39,29 @@ STUDIO_PORT = 3009
 CLIPS_DIR = DATA_DIR / "remotion" / "out"
 EXPORTS_DIR = DATA_DIR / "exports"
 
+
+def migrate_legacy_transcriptions() -> None:
+    """Migrate any files from legacy PROJECT_DIR/transcriptions into TRANSCRIPTIONS_DIR and cleanup."""
+    legacy_dir = PROJECT_DIR / "transcriptions"
+    if legacy_dir.exists() and legacy_dir.resolve() != TRANSCRIPTIONS_DIR.resolve():
+        TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
+        for item in legacy_dir.iterdir():
+            if item.is_file():
+                dest = TRANSCRIPTIONS_DIR / item.name
+                if not dest.exists():
+                    try:
+                        shutil.move(str(item), str(dest))
+                    except Exception:
+                        pass
+        try:
+            if not any(legacy_dir.iterdir()):
+                legacy_dir.rmdir()
+        except Exception:
+            pass
+
+
+migrate_legacy_transcriptions()
+
 app = FastAPI(title="Kirinuki Web")
 
 # ── In-memory job store ───────────────────────────────────────────────────────
@@ -1202,8 +1225,8 @@ async def open_studio(req: StudioReq):
             popen_kwargs["start_new_session"] = True
         with open(studio_log, "w", encoding="utf-8") as logf:
             _studio_proc = subprocess.Popen(
-                [
-                    "npx", "remotion", "studio",
+                cfg.get_npx_cmd() + [
+                    "remotion", "studio",
                     # エントリポイントは studio-src/ 側 — Studio の書き戻しから
                     # remotion/src を守るため（_sync_studio_src 参照）
                     "studio-src/index.ts",

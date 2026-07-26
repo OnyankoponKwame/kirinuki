@@ -132,3 +132,14 @@ def bootstrap_bin_path() -> None:
     current = os.environ.get("PATH", "")
     if bin_dir not in current.split(os.pathsep):
         os.environ["PATH"] = bin_dir + os.pathsep + current
+
+
+def get_npx_cmd() -> list[str]:
+    """Returns base command list for executing npx cross-platform.
+    On Windows, npx is a batch script (npx.cmd) which cannot be directly executed
+    by CreateProcess when shell=False. Using ['cmd', '/c', 'npx'] ensures execution.
+    """
+    if sys.platform == "win32":
+        return ["cmd", "/c", "npx"]
+    return ["npx"]
+

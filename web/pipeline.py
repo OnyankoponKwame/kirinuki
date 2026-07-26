@@ -1456,8 +1456,8 @@ def render_clip(
                 shutil.copy2(src, tmp_pub / name)
 
         proc = subprocess.Popen(
-            [
-                "npx", "remotion", "render",
+            cfg.get_npx_cmd() + [
+                "remotion", "render",
                 "ClipComposition",
                 str(output_path.absolute()),
                 "--props", props,
