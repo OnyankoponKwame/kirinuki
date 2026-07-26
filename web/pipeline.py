@@ -167,6 +167,45 @@ def _read_chat_entries(chat_path: Path, limit_lines: int | None = None) -> list[
     return entries
 
 
+def _bucket_chat_counts(entries: list[tuple[float, str]], window_sec: float) -> tuple[list[int], float, float]:
+    """Bucket chat entries into window_sec-wide time buckets and derive the spike
+    threshold. Shared by analyze_chat_spikes() (the Gemini prompt's text report) and
+    chat_activity_buckets() (the ③切り抜き提案 activity chart) so both agree on what
+    counts as a "盛り上がり" spike."""
+    max_time = max(t for t, _ in entries)
+    num_buckets = int(max_time // window_sec) + 1
+    buckets = [0] * num_buckets
+    for t, _text in entries:
+        idx = min(int(t // window_sec), num_buckets - 1)
+        buckets[idx] += 1
+
+    # 平均コメント数の算出（動画全体の時間に対するバケット平均）
+    avg_count = sum(buckets) / len(buckets)
+    # 閾値の設定（全体の平均の1.5倍、かつ最低でも3コメント以上）
+    threshold = max(avg_count * 1.5, 3.0)
+    return buckets, avg_count, threshold
+
+
+def chat_activity_buckets(chat_path: Path, window_sec: float = 30.0) -> list[dict]:
+    """Per-window chat message counts for the ③切り抜き提案 activity chart
+    (web/static/index.html's chat activity bar chart).
+
+    This is a separate read of the same chat file already used by
+    suggest_clips_from_result() (which independently reads the raw entries and
+    analyze_chat_spikes()'s text report to build the Gemini prompt) — the chart
+    doesn't add or change what gets sent to Gemini, it just visualizes the same
+    spike signal analyze_chat_spikes() already feeds into that prompt.
+    """
+    entries = _read_chat_entries(chat_path)
+    if not entries or max(t for t, _ in entries) <= 0:
+        return []
+    buckets, _avg_count, threshold = _bucket_chat_counts(entries, window_sec)
+    return [
+        {"t": idx * window_sec, "count": count, "spike": count >= threshold}
+        for idx, count in enumerate(buckets)
+    ]
+
+
 def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> str:
     """Analyze chat density spikes and generate a report of hyped time ranges."""
     if not entries:
@@ -177,20 +216,7 @@ def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
     if max_time <= 0:
         return ""
 
-    num_buckets = int(max_time // window_sec) + 1
-    buckets = [0] * num_buckets
-    bucket_entries = [[] for _ in range(num_buckets)]
-
-    for t, text in entries:
-        idx = min(int(t // window_sec), num_buckets - 1)
-        buckets[idx] += 1
-        bucket_entries[idx].append(text)
-
-    # 2. 平均コメント数の算出（動画全体の時間に対するバケット平均）
-    avg_count = sum(buckets) / len(buckets)
-
-    # 3. 閾値の設定（全体の平均の1.5倍、かつ最低でも3コメント以上）
-    threshold = max(avg_count * 1.5, 3.0)
+    buckets, avg_count, threshold = _bucket_chat_counts(entries, window_sec)
 
     # 4. スパイク区間の検出
     spikes = []

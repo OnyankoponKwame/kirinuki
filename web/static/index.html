@@ -722,9 +722,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
         </div>
       </div>
     </div>
+    <div class="field" id="p3-chat-activity-wrap" style="margin-top:8px" hidden>
+      <label>チャット盛り上がり分析</label>
+      <div id="p3-chat-activity-chart" style="display:flex;align-items:flex-end;gap:1px;height:48px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:4px;box-sizing:border-box;overflow:hidden"></div>
+      <div id="p3-chat-activity-note" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+    </div>
     <div class="field" style="margin-top:8px">
       <label>追加指示（任意） ※他の選定ルールより最優先されます</label>
-      <textarea id="p3-extra-prompt" rows="3" placeholder="例：&#13;&#10;・10分頃のゲーム攻略シーンを切り抜いて&#13;&#10;・マリオカートについての雑談をしている部分を切り抜いて&#13;&#10;・AIについて熱く語っている部分を時間制限なく切り抜いて" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
+      <textarea id="p3-extra-prompt" rows="3" placeholder="例：&#13;&#10;・10分頃のシーンを切り抜いて&#13;&#10;・〇〇についての雑談をしている部分を切り抜いて&#13;&#10;・〇〇について熱く語っている部分を時間制限なく切り抜いて&#13;&#10;・〇〇したシーンを30秒以内でまとめて" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);box-sizing:border-box"></textarea>
     </div>
     <div class="field" style="margin-top:8px">
       <label>提案モデル</label>
@@ -818,7 +823,7 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
         <div style="display:flex;gap:8px;align-items:center">
           <span class="sel-info" id="ph4-sel-info"></span>
           <button class="btn-secondary" id="ph4-selall-btn" onclick="toggleSelectAll()">全選択</button>
-          <button class="btn-studio" id="ph4-studio-btn" onclick="openInStudio()">🎬 Studio で確認</button>
+          <button class="btn-studio" id="ph4-studio-btn" onclick="openInStudio()">🎬 Studio で確認・反映</button>
           <button class="btn-export" id="ph4-export-btn" onclick="exportPremiere()" title="構図・カット適用済みで字幕を焼き込まないmp4と、字幕ファイル(SRT)を書き出します。Premiere Pro などで字幕を自分で付ける用の素材です">📦 編集用に書き出し</button>
           <button class="btn-danger" id="ph4-cancel-btn" onclick="cancelPhase4()" hidden>中止</button>
           <button class="btn-render" id="ph4-render-btn" onclick="runPhase4()">▶ レンダリング</button>
@@ -1163,17 +1168,49 @@ function onP3TransChange() {
   const transFile = document.getElementById('p3-trans').value;
   if (!transFile) return;
   const videoStem = videoStemFromTranscriptionBase(transcriptionBase(transFile));
-  selectOptionIfPresent('p3-chat', `${videoStem}.live_chat.json`);
+  if (selectOptionIfPresent('p3-chat', `${videoStem}.live_chat.json`)) {
+    loadChatActivity();
+  }
 }
 
 function onP3ChatChange() {
   const chatFile = document.getElementById('p3-chat').value;
+  loadChatActivity();
   if (!chatFile) return;
   const videoStem = chatFile.replace(/\.live_chat\.json$/, '');
   const transSel = document.getElementById('p3-trans');
   const re = new RegExp(`^${escapeRegExp(videoStem)}_\\d{8}_\\d{6}_full\\.json$`);
   const match = Array.from(transSel.options).map(o => o.value).find(v => re.test(v));
   if (match) transSel.value = match;
+}
+
+// ── チャット盛り上がり分析チャート（表示のみ・切り抜き提案には影響しない） ──
+async function loadChatActivity() {
+  const chatFile = document.getElementById('p3-chat').value;
+  const wrap = document.getElementById('p3-chat-activity-wrap');
+  const chart = document.getElementById('p3-chat-activity-chart');
+  const note = document.getElementById('p3-chat-activity-note');
+  if (!chatFile) { wrap.hidden = true; chart.innerHTML = ''; return; }
+  try {
+    const res = await fetch(`/api/chat-activity?chat=${encodeURIComponent(chatFile)}`);
+    if (!res.ok) { wrap.hidden = true; return; }
+    const { buckets } = await res.json();
+    if (!buckets || buckets.length === 0) { wrap.hidden = true; return; }
+    const maxCount = Math.max(...buckets.map(b => b.count), 1);
+    chart.innerHTML = buckets.map(b => {
+      const h = Math.max(2, Math.round((b.count / maxCount) * 40));
+      const color = b.spike ? 'var(--accent, #ec4899)' : 'var(--muted)';
+      const label = `${secToHMS(b.t)} - ${b.count}件${b.spike ? '（盛り上がり）' : ''}`;
+      return `<div title="${escHtml(label)}" style="flex:1;min-width:1px;height:${h}px;background:${color};border-radius:1px 1px 0 0"></div>`;
+    }).join('');
+    const spikeCount = buckets.filter(b => b.spike).length;
+    note.textContent = spikeCount > 0
+      ? `🔥 ${spikeCount} 箇所で盛り上がりを検出（濃い色のバー）。バーにカーソルを合わせると時刻とコメント数を確認できます。`
+      : '目立った盛り上がり区間は検出されませんでした。';
+    wrap.hidden = false;
+  } catch (_) {
+    wrap.hidden = true;
+  }
 }
 
 async function initAllFileLists() {
@@ -1314,6 +1351,7 @@ async function runPhase1(chatOnly = false) {
           await refreshFiles('p3-chat', 'chat');
           const s3c = document.getElementById('p3-chat');
           if (!s3c.value) s3c.value = chatName;
+          loadChatActivity();
         }
         if (chips.length) {
           const chip = document.getElementById('ph1-result');
@@ -1456,7 +1494,6 @@ async function runPhase3() {
 
     openSSE(job_id, 3, async (msg, es) => {
       if (msg.status === 'ready' && msg.clips) {
-        phaseOut.clipsData = msg.clips;
         const chip = document.getElementById('ph3-result');
         const clipsFileName = msg.clips_path ? getBasename(msg.clips_path) : null;
         chip.innerHTML = `<span class="result-chip">🎬 ${msg.clips.length} 件のクリップを提案</span>`
@@ -1494,11 +1531,6 @@ async function loadClipsForRender() {
   const clipsFile = document.getElementById('p4-clips').value;
   const videoFile = document.getElementById('p4-video').value;
   const transFile = document.getElementById('p4-trans').value;
-
-  if (phaseOut.clipsData) {
-    loadClipsIntoGrid(phaseOut.clipsData);
-    return;
-  }
 
   if (!clipsFile && !videoFile) {
     alert('動画ファイルまたはクリップJSONを選択してください');
@@ -2733,7 +2765,7 @@ async function openInStudio() {
     alert('Studio の起動に失敗しました: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '🎬 Studio で確認';
+    btn.textContent = '🎬 Studio で確認・反映';
   }
 }
 

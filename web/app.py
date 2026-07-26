@@ -255,6 +255,7 @@ def _run_pipeline(job_id: str) -> None:
             job["video_path"] = str(video_path)
             log(f"✓ Video: {video_path.name}")
             if chat_path:
+                job["chat_path"] = str(chat_path)
                 log(f"✓ Chat: {chat_path.name}")
         else:
             # transcription_path provided — no video needed for suggest-only flow
@@ -907,6 +908,19 @@ def video_frame(video: str = Query(...), t: float = Query(0.0)):
     # picker an ffmpeg run every time it re-reads the same frame.
     return Response(content=proc.stdout, media_type="image/jpeg",
                     headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/chat-activity")
+def chat_activity(chat: str = Query(...)):
+    """Per-30s chat message counts for the ③切り抜き提案 activity chart, computed
+    on demand and never persisted (see pipeline.chat_activity_buckets()). The
+    selected chat file itself is already sent to Gemini via
+    suggest_clips_from_result() regardless of whether this chart is viewed."""
+    import pipeline as pl
+    path = _resolve(Path(chat).name, DOWNLOADS_DIR)
+    if not path.exists():
+        raise HTTPException(404, f"チャットファイルが見つかりません: {path.name}")
+    return {"buckets": pl.chat_activity_buckets(path)}
 
 
 @app.get("/api/clips/{filename}")
