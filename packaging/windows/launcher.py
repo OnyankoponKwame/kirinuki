@@ -194,7 +194,7 @@ def _try_show_pystray_manager(data_dir: Path) -> bool:
             pystray.MenuItem(f"🟢 Kirinuki サーバー実行中 (http://{HOST}:{PORT})", lambda i, item: None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("🌐 Web画面（ブラウザ）を開く", on_open_browser, default=True),
-            pystray.MenuItem("📂 データフォルダを開く (cookies.txt 保存先)", on_open_data_dir),
+            pystray.MenuItem("📂 インストールフォルダを開く", on_open_data_dir),
             pystray.MenuItem("🍪 Cookieの手動保存手順を見る", on_show_cookie_guide),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("❌ Kirinuki サーバーを終了する", on_shutdown),

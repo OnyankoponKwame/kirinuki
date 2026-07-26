@@ -2,6 +2,12 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -34,4 +40,13 @@ jobs:
           name: KirinukiSetup
           path: dist/KirinukiSetup.exe
           if-no-files-found: error
+
+      # Runs only when this build was triggered by a version tag push (e.g. `v0.1.0`),
+      # so manual workflow_dispatch test builds stay artifact-only and don't spam Releases.
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/KirinukiSetup.exe
+          generate_release_notes: true
 
