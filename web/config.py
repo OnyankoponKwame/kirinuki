@@ -71,10 +71,64 @@ def _read_config() -> dict[str, str]:
     return _read_json(_config_path())
 
 
+_COOKIE_EXTENSION_CHROME_URL = (
+    "https://chromewebstore.google.com/detail/get-cookiestxt-locally/"
+    "cclelndahbckbenkjhflpdbgdldlbecc?hl=ja"
+)
+_COOKIE_EXTENSION_FIREFOX_URL = "https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/"
+
+
+def get_cookie_guide_path(data_dir: Path | None = None) -> Path:
+    d = data_dir if data_dir is not None else get_data_dir()
+    return d / "Cookieの手動保存手順.txt"
+
+
+def ensure_cookie_guide_file(data_dir: Path | None = None) -> Path:
+    """データフォルダ内に『Cookieの手動保存手順.txt』を作成・更新してパスを返す"""
+    path = get_cookie_guide_path(data_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        guide_text = (
+            "======================================================================\n"
+            "【Cookieの手動保存手順】（年齢制限・メンバー限定動画ダウンロード用）\n"
+            "======================================================================\n\n"
+            "ログインが必要な動画（年齢制限・メンバー限定動画など）をダウンロードするには、\n"
+            "お使いのブラウザから書き出した Cookie ファイル（cookies.txt）が必要です。\n\n"
+            "----------------------------------------------------------------------\n"
+            "■ 手順\n"
+            "----------------------------------------------------------------------\n\n"
+            "1. ブラウザに「Get cookies.txt LOCALLY」拡張機能を追加します。\n"
+            f"   Chrome: {_COOKIE_EXTENSION_CHROME_URL}\n"
+            f"   Firefox: {_COOKIE_EXTENSION_FIREFOX_URL}\n\n"
+            "2. 拡張機能の管理画面で「シークレットモードでの実行を許可する」を有効にします。\n\n"
+            "3. シークレット（プライベート）ウィンドウを開き、YouTubeにログインします。\n\n"
+            "4. 同じタブで https://www.youtube.com/robots.txt を開きます。\n\n"
+            "5. 拡張機能のアイコンをクリックし「Export As」で書き出して、\n"
+            f"   下記フォルダ（データフォルダ）に保存してください。\n"
+            "   ファイル名は末尾が「cookies.txt」であれば自動的に認識されます\n"
+            "   （例: 127.0.0.1_cookies.txt や youtube.com_cookies.txt）。\n\n"
+            f"   保存先: {path.parent}\n\n"
+            "6. 保存完了後、シークレットウィンドウを閉じてください。\n\n"
+            "----------------------------------------------------------------------\n"
+            "※ 注意事項\n"
+            "----------------------------------------------------------------------\n"
+            "・Cookie を使いすぎるとアカウントが制限されるリスクがあります。\n"
+            "・不要なときはファイルを削除または移動し、メインアカウントではなく\n"
+            "  サブアカウント等の利用をおすすめします。\n"
+            "======================================================================\n"
+        )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(guide_text)
+    except Exception:
+        pass
+    return path
+
+
 def load_settings() -> dict[str, str]:
     """Load bundled defaults (packaged builds only, lowest priority) and persisted
     config.json (settings screen, always wins) and apply them to os.environ on top
     of .env. Returns the persisted (settings screen) dict."""
+    ensure_cookie_guide_file()
     bundled = _read_json(_bundled_defaults_path())
     for key in _SETTINGS_KEYS:
         value = bundled.get(key)

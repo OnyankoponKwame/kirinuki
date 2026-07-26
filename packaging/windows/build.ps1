@@ -42,7 +42,7 @@ $AppDir     = Join-Path $StageRoot "app"
 $DownloadDir = Join-Path $DistRoot "_downloads"
 
 $PythonVersion = "3.12.7"
-$PythonExeUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-amd64.exe"
+$PythonZipUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
 $GetPipUrl     = "https://bootstrap.pypa.io/get-pip.py"
 
 $NodeVersion   = "24.18.0"
@@ -61,19 +61,18 @@ function Download-File($Url, $OutFile) {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile
 }
 
-# ── 1. Official Python Installer -> TargetDir ─────────────────────────────────
-Write-Host "== Python (Official Installer) =="
+# ── 1. Embeddable Python + pip + requirements.txt ────────────────────────────
+Write-Host "== Python =="
 $pythonDir = Join-Path $AppDir "python"
-$pythonExe = Join-Path $DownloadDir "python-installer.exe"
-Download-File $PythonExeUrl $pythonExe
+$pythonZip = Join-Path $DownloadDir "python-embed.zip"
+Download-File $PythonZipUrl $pythonZip
+Expand-Archive -Path $pythonZip -DestinationPath $pythonDir -Force
 
-# TargetDir にサイレント展開 (レジストリやシステム PATH を汚さずにアプリフォルダへポータブル展開)
-Invoke-Checked "Install Python to target directory" {
-    $proc = Start-Process -FilePath $pythonExe -ArgumentList "/quiet", "TargetDir=`"$pythonDir`"", "Include_tcltk=1", "Include_pip=1", "Include_test=0", "Include_doc=0", "AssociateFiles=0", "ShortPaths=0", "CompileAll=0" -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
-        throw "Python installer failed with exit code $($proc.ExitCode)"
-    }
-}
+# Embeddable Python disables `site` (and thus site-packages) by default via the
+# ._pth file — re-enable it so pip-installed packages are importable.
+$pthFile = Get-ChildItem -Path $pythonDir -Filter "python3*._pth" | Select-Object -First 1
+(Get-Content $pthFile.FullName) -replace '^#\s*import site', 'import site' | Set-Content $pthFile.FullName
+Add-Content $pthFile.FullName "`nLib\site-packages"
 
 $getPip = Join-Path $DownloadDir "get-pip.py"
 Download-File $GetPipUrl $getPip

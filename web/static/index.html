@@ -539,8 +539,14 @@ a.btn-dl { background: var(--blue); color: var(--text); border-radius: 999px; fo
     <polygon points="9,6 21,13 9,20" fill="#4A3540"/>
   </svg>
   <div><h1>Kirinuki</h1><div class="sub">YouTube 切り抜き自動生成</div></div>
-  <button class="btn-secondary" id="theme-manager-btn" onclick="openThemeManager()" style="margin-left:auto">🎨 テーマ管理</button>
-  <button class="btn-secondary" id="settings-btn" onclick="openSettings()">⚙ 設定</button>
+  <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <button class="btn-secondary" title="データ保存先フォルダを開く (cookies.txt など)" onclick="openSystemFolder('data')" style="font-size:12px;padding:5px 10px">📂 データフォルダ</button>
+    <button class="btn-secondary" title="アプリ本体があるインストールフォルダを開く" onclick="openSystemFolder('install')" style="font-size:12px;padding:5px 10px">📁 本体フォルダ</button>
+    <button class="btn-secondary" title="Cookieの手動保存手順テキストを開く" onclick="openCookieGuide()" style="font-size:12px;padding:5px 10px">🍪 Cookie手順</button>
+    <button class="btn-secondary" id="theme-manager-btn" onclick="openThemeManager()" style="font-size:12px;padding:5px 10px">🎨 テーマ</button>
+    <button class="btn-secondary" id="settings-btn" onclick="openSettings()" style="font-size:12px;padding:5px 10px">⚙ 設定</button>
+    <button class="btn-secondary" style="color:var(--red-strong);border-color:var(--red-dim);font-size:12px;padding:5px 10px" onclick="shutdownSystem()" title="Kirinuki サーバーを終了">❌ 終了</button>
+  </div>
 </header>
 
 <main>
@@ -3363,6 +3369,40 @@ refreshSettingsBanner();
 onTransModelChange();
 loadThemes();
 initFacePicker();
+
+// ── System Actions ──────────────────────────────────────────────────────────
+async function openSystemFolder(target) {
+  try {
+    const res = await fetch(`/api/system/open-folder?target=${target}`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    alert('フォルダを開けませんでした: ' + e.message);
+  }
+}
+
+async function openCookieGuide() {
+  try {
+    const res = await fetch('/api/system/open-cookie-guide', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    alert('Cookieガイドを開けませんでした: ' + e.message);
+  }
+}
+
+async function shutdownSystem() {
+  if (!confirm('Kirinuki サーバーを終了しますか？\n（終了するとWeb画面の操作ができなくなります）')) return;
+  try {
+    await fetch('/api/system/shutdown', { method: 'POST' });
+    document.body.innerHTML = `
+      <div style="display:flex;height:100vh;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#151015;color:#fff;font-family:sans-serif">
+        <h2 style="font-size:20px;color:#3dcb94">🟢 Kirinuki サーバーを終了しました</h2>
+        <p style="color:#aaa;font-size:14px">このタブを閉じてください。</p>
+      </div>
+    `;
+  } catch (e) {
+    alert('シャットダウン要求に失敗しました: ' + e.message);
+  }
+}
 
 // ── Heartbeat (Auto-shutdown) ────────────────────────────────────────────────
 // 5秒ごとにサーバーへ生存信号を送り、タブがすべて閉じられた際の自動シャットダウンをサポート

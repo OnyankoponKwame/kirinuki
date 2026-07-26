@@ -184,175 +184,98 @@ def _open_folder(path: Path) -> None:
 
 
 def _show_cookie_guide_dialog(data_dir: Path) -> None:
-    """Cookieの手動保存手順をダイアログで表示する"""
-    guide_text = _cookie_guide_text(data_dir)
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(
-            None,
-            guide_text,
-            "Cookieの手動保存手順",
-            0x40,  # MB_ICONINFORMATION
-        )
-    else:
-        print(guide_text)
-
-
-def _try_show_tkinter_manager(data_dir: Path) -> bool:
-    """Tkinterが利用可能な場合、専用GUIウィンドウでサーバーマネージャーを表示する"""
-    python_dir = APP_ROOT / "python"
-    python_lib = python_dir / "Lib"
-    python_dlls = python_dir / "DLLs"
-
-    # sys.path に python/Lib と python/DLLs を明示的に追加する
-    for path_item in [python_lib, python_dlls]:
-        if path_item.exists() and str(path_item) not in sys.path:
-            sys.path.insert(0, str(path_item))
-
-    tcl_dir = python_dir / "tcl"
-    if tcl_dir.exists():
-        tcl86_dir = tcl_dir / "tcl8.6"
-        tk86_dir = tcl_dir / "tk8.6"
-        os.environ["TCL_LIBRARY"] = str(tcl86_dir if tcl86_dir.exists() else tcl_dir)
-        if tk86_dir.exists():
-            os.environ["TK_LIBRARY"] = str(tk86_dir)
-
+    """Cookieの手動保存手順テキストファイルをOSの既定エディタ（メモ帳など）で開く"""
     try:
-        import tkinter as tk
-        from tkinter import messagebox, ttk
+        import config as cfg
+        guide_path = cfg.ensure_cookie_guide_file(data_dir)
+        if sys.platform == "win32":
+            os.startfile(str(guide_path))
+        elif sys.platform == "darwin":
+            import subprocess
+            subprocess.run(["open", str(guide_path)])
+        else:
+            import subprocess
+            subprocess.run(["xdg-open", str(guide_path)])
+        _log(f"opened cookie guide file: {guide_path}")
     except Exception as e:
-        _log(f"Tkinter import failed: {e}\n{traceback.format_exc()}")
+        _log(f"failed to open cookie guide file: {e}")
+
+
+def _try_show_pystray_manager(data_dir: Path) -> bool:
+    """pystrayを使用してシステムトレイ（タスクトレイ）に常駐し、メニューから各種操作を行えるようにする"""
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+    except ImportError as e:
+        _log(f"pystray module import failed: {e}")
         return False
 
     try:
-        root = tk.Tk()
-        root.title("Kirinuki サーバーマネージャー")
-        root.geometry("480x400")
-        root.resizable(False, False)
-
-        # ウィンドウを画面中央付近に配置
-        root.update_idletasks()
-        width = root.winfo_width()
-        height = root.winfo_height()
-        x = (root.winfo_screenwidth() // 2) - (width // 2)
-        y = (root.winfo_screenheight() // 2) - (height // 2)
-        root.geometry(f"{width}x{height}+{x}+{y}")
-
         icon_path = APP_ROOT / "icon.ico"
         if icon_path.exists():
-            try:
-                root.iconbitmap(str(icon_path))
-            except Exception:
-                pass
+            image = Image.open(icon_path)
+        else:
+            # 64x64 の緑丸アイコンを自動生成
+            image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            draw.ellipse((8, 8, 56, 56), fill=(16, 124, 65))
 
-        # スタイル設定
-        style = ttk.Style(root)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-
-        # ヘッダーエリア
-        header_frame = ttk.Frame(root, padding=(20, 15, 20, 10))
-        header_frame.pack(fill="x")
-
-        ttk.Label(
-            header_frame,
-            text="🟢 Kirinuki サーバー実行中",
-            font=("Segoe UI", 12, "bold"),
-            foreground="#107c41",
-        ).pack(anchor="w")
-
-        ttk.Label(
-            header_frame,
-            text=f"アドレス: http://{HOST}:{PORT}",
-            font=("Segoe UI", 9),
-            foreground="#555555",
-        ).pack(anchor="w", pady=(3, 0))
-
-        # ボタンエリア
-        btn_frame = ttk.Frame(root, padding=(20, 10, 20, 20))
-        btn_frame.pack(fill="both", expand=True)
-
-        def on_open_browser():
+        def on_open_browser(icon, item):
             webbrowser.open(f"http://{HOST}:{PORT}")
 
-        def on_open_install_dir():
+        def on_open_install_dir(icon, item):
             _open_folder(APP_ROOT)
 
-        def on_open_data_dir():
+        def on_open_data_dir(icon, item):
             _open_folder(data_dir)
 
-        def on_show_cookie_guide():
-            guide_win = tk.Toplevel(root)
-            guide_win.title("Cookieの手動保存手順")
-            guide_win.geometry("560x460")
-            guide_win.transient(root)
-            guide_win.grab_set()
+        def on_show_cookie_guide(icon, item):
+            _show_cookie_guide_dialog(data_dir)
 
-            txt_frame = ttk.Frame(guide_win, padding=15)
-            txt_frame.pack(fill="both", expand=True)
+        def on_shutdown(icon, item):
+            icon.stop()
 
-            txt = tk.Text(txt_frame, wrap="word", font=("メイリオ", 9), relief="solid", bd=1)
-            txt.insert("1.0", _cookie_guide_text(data_dir))
-            txt.config(state="disabled")
-            txt.pack(fill="both", expand=True)
+        menu = pystray.Menu(
+            pystray.MenuItem(f"🟢 Kirinuki サーバー実行中 (http://{HOST}:{PORT})", lambda i, item: None, enabled=False),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("🌐 Web画面（ブラウザ）を開く", on_open_browser, default=True),
+            pystray.MenuItem("📁 インストールフォルダを開く", on_open_install_dir),
+            pystray.MenuItem("📂 データフォルダを開く (cookies.txt 保存先)", on_open_data_dir),
+            pystray.MenuItem("🍪 Cookieの手動保存手順を見る", on_show_cookie_guide),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("❌ Kirinuki サーバーを終了する", on_shutdown),
+        )
 
-            ttk.Button(guide_win, text="閉じる", command=guide_win.destroy).pack(pady=10)
+        icon = pystray.Icon("Kirinuki", image, "Kirinuki サーバーマネージャー", menu)
+        _log("showing pystray server manager in system tray")
 
-        def on_shutdown():
-            root.destroy()
+        try:
+            icon.notify(
+                f"Kirinuki サーバーが起動しました。\nhttp://{HOST}:{PORT}",
+                "Kirinuki サーバーマネージャー"
+            )
+        except Exception:
+            pass
 
-        buttons = [
-            ("🌐  Web画面（ブラウザ）を開く", on_open_browser),
-            ("📁  インストールフォルダを開く", on_open_install_dir),
-            ("📂  データフォルダを開く (cookies.txt 保存先)", on_open_data_dir),
-            ("🍪  Cookieの手動保存手順を見る", on_show_cookie_guide),
-            ("❌  Kirinuki サーバーを終了する", on_shutdown),
-        ]
-
-        for text, cmd in buttons:
-            btn = ttk.Button(btn_frame, text=text, command=cmd)
-            btn.pack(fill="x", pady=4, ipady=4)
-
-        root.protocol("WM_DELETE_WINDOW", on_shutdown)
-        _log("showing Tkinter server manager window")
-        root.mainloop()
+        icon.run()
         return True
     except Exception as e:
-        _log(f"Tkinter manager failed: {e}")
+        _log(f"pystray manager failed: {e}")
         return False
 
 
 def _show_server_manager(data_dir: Path) -> None:
-    """サーバーマネージャーUIを表示する（Tkinter GUI ウィンドウ -> フォールバックの順に試行）"""
-    if _try_show_tkinter_manager(data_dir):
+    """サーバーマネージャーUIを表示する（pystray タスクトレイ常駐 -> フォールバックの順に試行）"""
+    if _try_show_pystray_manager(data_dir):
         return
 
-    # フォールバック
-    _log("showing fallback server manager (MessageBox / event wait)")
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(
-            None,
-            f"Kirinuki サーバーが正常に起動し、実行中です。\n\n"
-            f"アドレス: http://{HOST}:{PORT}\n"
-            f"データ保存先: {data_dir}\n\n"
-            f"[ OK ] をクリックすると Kirinuki サーバーを終了します。",
-            "Kirinuki サーバーマネージャー",
-            0x40,  # MB_ICONINFORMATION
-        )
-    else:
-        try:
-            if sys.stdin is not None and sys.stdin.isatty():
-                input("Press Enter to shutdown Kirinuki server...\n")
-            else:
-                stop_event = threading.Event()
-                stop_event.wait()
-        except (RuntimeError, EOFError, OSError, KeyboardInterrupt):
-            stop_event = threading.Event()
-            try:
-                stop_event.wait()
-            except KeyboardInterrupt:
-                pass
+    # フォールバック (イベント待機)
+    _log("showing fallback server manager (event wait)")
+    try:
+        stop_event = threading.Event()
+        stop_event.wait()
+    except KeyboardInterrupt:
+        pass
 
 
 def main() -> None:

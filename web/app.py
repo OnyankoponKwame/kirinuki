@@ -125,6 +125,53 @@ async def shutdown_event():
     _shutdown_studio_proc()
 
 
+@app.post("/api/system/open-folder")
+async def open_folder_endpoint(target: str = Query("data")):
+    """指定されたフォルダ（data / install）をOSのファイルマネージャーで開く"""
+    path = DATA_DIR if target == "data" else PROJECT_DIR
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(path))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(path)])
+        else:
+            subprocess.run(["xdg-open", str(path)])
+        return {"status": "ok", "opened": str(path)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/system/open-cookie-guide")
+async def open_cookie_guide_endpoint():
+    """Cookieの手動保存手順テキストファイルをOSの標準テキストエディタ（メモ帳など）で開く"""
+    guide_path = cfg.ensure_cookie_guide_file(DATA_DIR)
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(guide_path))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(guide_path)])
+        else:
+            subprocess.run(["xdg-open", str(guide_path)])
+        return {"status": "ok", "opened": str(guide_path)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/api/system/shutdown")
+async def shutdown_endpoint():
+    """サーバープロセスを停止する"""
+    _shutdown_studio_proc()
+    def _exit_later():
+        time.sleep(0.5)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    asyncio.get_event_loop().run_in_executor(None, _exit_later)
+    return {"status": "shutting_down"}
+
+
+
 def _new_job(req: "StartReq") -> str:
     jid = uuid.uuid4().hex[:8]
     jobs[jid] = {
