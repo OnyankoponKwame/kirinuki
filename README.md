@@ -84,7 +84,8 @@ YouTube の URL を入力すると、動画本体とライブチャットのロ�
 - 「無音区間をカット」をオンにすると、間延びした無音部分を自動でカットしてテンポを整えます。
 - 「▶ 提案を生成」を押すと、切り抜き候補のクリップ一覧が作成されます。
 
-<!-- 画像: ③切り抜き提案画面 -->
+<img width="871" height="663" alt="image" src="https://github.com/user-attachments/assets/451de25f-49bd-48e8-bd21-fdeec1ed8baa" />
+
 
 ### ④ レンダリング
 
