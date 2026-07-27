@@ -1,9 +1,11 @@
 """Pipeline orchestration for the Kirinuki web system."""
 
 import json
+import math
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -167,11 +169,101 @@ def _read_chat_entries(chat_path: Path, limit_lines: int | None = None) -> list[
     return entries
 
 
-def _bucket_chat_counts(entries: list[tuple[float, str]], window_sec: float) -> tuple[list[int], float, float]:
-    """Bucket chat entries into window_sec-wide time buckets and derive the spike
-    threshold. Shared by analyze_chat_spikes() (the Gemini prompt's text report) and
-    chat_activity_buckets() (the ③切り抜き提案 activity chart) so both agree on what
-    counts as a "盛り上がり" spike."""
+# 盛り上がり検出のプリセット。"zscore" 系（既定）はガウシアン平滑化＋中央値/MADのロバスト
+# Zスコアで、感度違いの3段階はパラメータ（平滑化の強さ・Zスコアの閾値・絶対下限）だけが異なる
+# 同じ方式。"mean_multiplier" は平滑化なしで生のバケット件数を平均の定数倍とだけ比較する旧
+# ロジック（自己抑制は起きないが、複数の盛り上がりがある配信ではそのうちの小さい方が埋もれ
+# やすい。単発の短いバーストを平滑化なしでそのまま拾いたい・過去のクリップ提案と検出結果を
+# 揃えたい、といった用途向けに残してある）。
+# UI（web/static/index.html の p3-spike-preset プルダウン）・GET /api/spike-presets・
+# suggest_clips_from_result() の spike_preset 引数から、ここに定義したキーで選択する。
+SPIKE_DETECTION_PRESETS: dict[str, dict] = {
+    "balanced": {
+        "label": "標準（バランス型）",
+        "method": "zscore",
+        "sigma_buckets": 1.5,  # ガウシアンカーネルの標準偏差（バケット単位。30秒バケットなら約45秒相当）
+        "z_threshold": 2.0,
+        "min_count": 3,  # コメントが少ない配信でZスコアだけに頼ると誤検出しやすいための絶対下限
+    },
+    "sensitive": {
+        "label": "多めに拾う（高感度）",
+        "method": "zscore",
+        "sigma_buckets": 1.0,  # 平滑化を弱め、単発の短いバーストが埋もれにくくする
+        "z_threshold": 1.5,
+        "min_count": 2,
+    },
+    "strict": {
+        "label": "大きな盛り上がりのみ（低感度）",
+        "method": "zscore",
+        "sigma_buckets": 2.0,
+        "z_threshold": 2.75,
+        "min_count": 4,
+    },
+    "legacy_mean": {
+        "label": "従来ロジック（平均コメント数の1.5倍）",
+        "method": "mean_multiplier",
+        "multiplier": 1.5,
+        "min_count": 3.0,
+    },
+}
+DEFAULT_SPIKE_PRESET = "sensitive"
+
+
+def _gaussian_smooth(values: list[float], sigma_buckets: float) -> list[float]:
+    """バケットごとのコメント数系列をガウシアンカーネルで平滑化し、連続的な波形にする。
+    KDEの代わりとなる依存ライブラリなしの実装（このプロジェクトはWindowsインストーラ
+    向けにrequirements.txtを意図的に軽量に保っているため、numpy/scipyは使わない）。
+    カーネルは3σで打ち切り、範囲内のタップだけで正規化しているので、動画の両端が
+    （本来存在しない）ゼロパディングに引っ張られて値が低くなることもない。"""
+    n = len(values)
+    if n == 0:
+        return []
+    radius = max(1, round(sigma_buckets * 3))
+    offsets = range(-radius, radius + 1)
+    kernel = [math.exp(-0.5 * (d / sigma_buckets) ** 2) for d in offsets]
+    smoothed = []
+    for i in range(n):
+        total = weight_sum = 0.0
+        for d, w in zip(offsets, kernel):
+            j = i + d
+            if 0 <= j < n:
+                total += values[j] * w
+                weight_sum += w
+        smoothed.append(total / weight_sum if weight_sum else 0.0)
+    return smoothed
+
+
+def _robust_z_scores(values: list[float]) -> tuple[list[float], float]:
+    """各点について中央値/MADベースの修正Zスコアを計算し、あわせて「通常のN倍」表示の
+    基準値として中央値を返す。中央値とMADは平均・標準偏差と違って外れ値耐性（壊れ値が
+    約50%を超えない限りほぼ動かない）を持つ。少数の大きな盛り上がりがあっても基準値が
+    ほぼ動かないことが重要で、目的は複数の盛り上がり箇所を拾い出すこと。平均・標準偏差
+    だと、見つかった盛り上がりの分だけ基準値と分散が膨らみ、残りの盛り上がりのスコアが
+    縮んでしまう（自己抑制）。"""
+    n = len(values)
+    if n == 0:
+        return [], 0.0
+    median = statistics.median(values)
+    mad = statistics.median([abs(v - median) for v in values])
+    mad = max(mad, 0.5)  # MADがほぼ0だと僅かな増加でZスコアが暴発するためのフロア
+    z_scores = [0.6745 * (v - median) / mad for v in values]
+    return z_scores, median
+
+
+def _bucket_chat_counts(
+    entries: list[tuple[float, str]], window_sec: float, preset_key: str = DEFAULT_SPIKE_PRESET
+) -> tuple[list[int], list[bool], float]:
+    """チャットのエントリをwindow_sec秒幅のバケットに分け、SPIKE_DETECTION_PRESETSで選んだ
+    方式でどのバケットがハイライトかを判定する（既定の"zscore"系はガウシアン平滑化して
+    盛り上がり波形＝KDEの代わりを作り、その波形に対する中央値/MADのロバストZスコアで判定。
+    "mean_multiplier"は平滑化なしで生の件数を平均の定数倍と比較する旧ロジック）。
+    analyze_chat_spikes()（Geminiプロンプト用テキストレポート）とchat_activity_buckets()
+    （③切り抜き提案のアクティビティチャート）の両方から共有され、両者が同じ基準で
+    「盛り上がり」を判定できるようにしている。
+
+    戻り値は(buckets, is_spike, baseline) — baselineは"通常のN倍"表示の算出に使う基準値
+    （zscore系は平滑化波形の中央値、mean_multiplierは生の平均件数）。
+    """
     max_time = max(t for t, _ in entries)
     num_buckets = int(max_time // window_sec) + 1
     buckets = [0] * num_buckets
@@ -179,11 +271,21 @@ def _bucket_chat_counts(entries: list[tuple[float, str]], window_sec: float) -> 
         idx = min(int(t // window_sec), num_buckets - 1)
         buckets[idx] += 1
 
-    # 平均コメント数の算出（動画全体の時間に対するバケット平均）
-    avg_count = sum(buckets) / len(buckets)
-    # 閾値の設定（全体の平均の1.5倍、かつ最低でも3コメント以上）
-    threshold = max(avg_count * 1.5, 3.0)
-    return buckets, avg_count, threshold
+    preset = SPIKE_DETECTION_PRESETS.get(preset_key, SPIKE_DETECTION_PRESETS[DEFAULT_SPIKE_PRESET])
+
+    if preset["method"] == "mean_multiplier":
+        avg_count = sum(buckets) / len(buckets)
+        threshold = max(avg_count * preset["multiplier"], preset["min_count"])
+        is_spike = [count >= threshold for count in buckets]
+        return buckets, is_spike, avg_count
+
+    smoothed = _gaussian_smooth([float(b) for b in buckets], preset["sigma_buckets"])
+    z_scores, baseline = _robust_z_scores(smoothed)
+    is_spike = [
+        z >= preset["z_threshold"] and buckets[i] >= preset["min_count"]
+        for i, z in enumerate(z_scores)
+    ]
+    return buckets, is_spike, baseline
 
 
 def _detect_chat_reactions(messages: list[str]) -> list[str]:
@@ -208,7 +310,9 @@ def _detect_chat_reactions(messages: list[str]) -> list[str]:
     return reactions
 
 
-def _detect_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> list[dict]:
+def _detect_chat_spikes(
+    entries: list[tuple[float, str]], window_sec: float = 30.0, preset_key: str = DEFAULT_SPIKE_PRESET
+) -> list[dict]:
     """Detect chat-density spike ranges with their messages/reactions/ratio.
 
     Shared by analyze_chat_spikes() (the text report sent to Gemini by
@@ -223,13 +327,13 @@ def _detect_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
     if max_time <= 0:
         return []
 
-    buckets, avg_count, threshold = _bucket_chat_counts(entries, window_sec)
+    buckets, is_spike, baseline = _bucket_chat_counts(entries, window_sec, preset_key)
 
     bucket_ranges: list[tuple[int, int]] = []
     in_spike = False
     spike_start = spike_end = 0
-    for idx, count in enumerate(buckets):
-        if count >= threshold:
+    for idx, spike in enumerate(is_spike):
+        if spike:
             if not in_spike:
                 in_spike = True
                 spike_start = idx
@@ -246,7 +350,7 @@ def _detect_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
         start, end = start_idx * window_sec, (end_idx + 1) * window_sec
         messages = [text for t, text in entries if start <= t < end]
         count = len(messages)
-        ratio = count / (avg_count * ((end - start) / window_sec)) if avg_count > 0 else 0
+        ratio = count / (baseline * ((end - start) / window_sec)) if baseline > 0 else 0
         result.append({
             "start": start,
             "end": end,
@@ -258,7 +362,7 @@ def _detect_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
     return result
 
 
-def chat_activity(chat_path: Path, window_sec: float = 30.0) -> dict:
+def chat_activity(chat_path: Path, window_sec: float = 30.0, preset_key: str = DEFAULT_SPIKE_PRESET) -> dict:
     """Full chat-activity payload for the ③切り抜き提案 activity chart
     (web/static/index.html): per-window counts for the bar chart, plus the
     detected spike ranges (with their actual messages) for the expandable spike
@@ -269,15 +373,17 @@ def chat_activity(chat_path: Path, window_sec: float = 30.0) -> dict:
     entries = _read_chat_entries(chat_path)
     if not entries or max(t for t, _ in entries) <= 0:
         return {"buckets": [], "spikes": []}
-    buckets, _avg_count, threshold = _bucket_chat_counts(entries, window_sec)
+    buckets, is_spike, _baseline = _bucket_chat_counts(entries, window_sec, preset_key)
     bucket_list = [
-        {"t": idx * window_sec, "count": count, "spike": count >= threshold}
+        {"t": idx * window_sec, "count": count, "spike": is_spike[idx]}
         for idx, count in enumerate(buckets)
     ]
-    return {"buckets": bucket_list, "spikes": _detect_chat_spikes(entries, window_sec)}
+    return {"buckets": bucket_list, "spikes": _detect_chat_spikes(entries, window_sec, preset_key)}
 
 
-def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30.0) -> str:
+def analyze_chat_spikes(
+    entries: list[tuple[float, str]], window_sec: float = 30.0, preset_key: str = DEFAULT_SPIKE_PRESET
+) -> str:
     """Analyze chat density spikes and generate a report of hyped time ranges."""
     if not entries:
         return ""
@@ -285,7 +391,7 @@ def analyze_chat_spikes(entries: list[tuple[float, str]], window_sec: float = 30
     if max_time <= 0:
         return ""
 
-    spikes = _detect_chat_spikes(entries, window_sec)
+    spikes = _detect_chat_spikes(entries, window_sec, preset_key)
     if not spikes:
         return "（顕著なチャットの盛り上がり区間は検出されませんでした）"
 
@@ -1005,6 +1111,7 @@ def suggest_clips_from_result(
     chat_path: Path | None,
     extra_prompt: str | None = None,
     gemini_model: str | None = None,
+    spike_preset: str | None = None,
 ) -> list[dict]:
     segments = result.get("segments", [])
     if segments:
@@ -1020,7 +1127,7 @@ def suggest_clips_from_result(
     if chat_path and chat_path.exists():
         entries = _read_chat_entries(chat_path)  # 全件読み込み
         if entries:
-            spike_report = analyze_chat_spikes(entries)
+            spike_report = analyze_chat_spikes(entries, preset_key=spike_preset or DEFAULT_SPIKE_PRESET)
             chat_lines = [f"[{t:.1f}s] {text}" for t, text in entries]
             chat_section = (
                 "\n## ライブチャット分析レポート\n"
@@ -1065,12 +1172,10 @@ def suggest_clips_from_result(
             raise ValueError(f"Could not parse clip suggestions from Gemini response:\n{text[:500]}")
         clips = json.loads(m.group())
 
-    # デフォルト設定のマージ（縦型・画面分割表示をデフォルトとする）
-    for clip in clips:
-        if "vertical" not in clip:
-            clip["vertical"] = True
-        if "verticalMode" not in clip:
-            clip["verticalMode"] = "split"
+    # vertical・verticalMode・cropX・faceCamZoom・faceCamY はここでは決めない —
+    # 最終的に常に web UI のグリッド（loadClipsIntoGrid/buildClipCard）が
+    # 向き設定・ソースの向きを見て都度計算し、readGridClips() で上書きされるため、
+    # ここで焼き込むと後から古いデフォルトのまま固定されてしまう。
 
     return enrich_clip_caption_effects(clips, segments)
 

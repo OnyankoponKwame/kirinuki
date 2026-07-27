@@ -724,6 +724,10 @@ a.btn-dl, button.btn-dl { background: var(--blue); color: var(--text); border-ra
     </div>
     <div class="field" id="p3-chat-activity-wrap" style="margin-top:8px" hidden>
       <label>チャット盛り上がり分析</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--muted)">検出感度:</span>
+        <select id="p3-spike-preset" onchange="loadChatActivity()" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+      </div>
       <div id="p3-chat-activity-chart" style="display:flex;align-items:flex-end;gap:1px;height:48px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:4px;box-sizing:border-box;overflow:hidden"></div>
       <div id="p3-chat-activity-tooltip" style="position:fixed;display:none;pointer-events:none;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:10001"></div>
       <div id="p3-chat-activity-note" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
@@ -1196,8 +1200,9 @@ async function loadChatActivity() {
   const note = document.getElementById('p3-chat-activity-note');
   const spikesWrap = document.getElementById('p3-chat-spikes');
   if (!chatFile) { wrap.hidden = true; chart.innerHTML = ''; spikesWrap.innerHTML = ''; return; }
+  const preset = document.getElementById('p3-spike-preset').value;
   try {
-    const res = await fetch(`/api/chat-activity?chat=${encodeURIComponent(chatFile)}`);
+    const res = await fetch(`/api/chat-activity?chat=${encodeURIComponent(chatFile)}${preset ? `&preset=${encodeURIComponent(preset)}` : ''}`);
     if (!res.ok) { wrap.hidden = true; return; }
     const { buckets, spikes } = await res.json();
     if (!buckets || buckets.length === 0) { wrap.hidden = true; return; }
@@ -1261,7 +1266,21 @@ async function initAllFileLists() {
     refreshFiles('p3-chat', 'chat'),
     refreshFiles('p4-clips', 'clips'),
     refreshFiles('p5-clip-select', 'rendered_clips'),
+    loadSpikePresets(),
   ]);
+}
+
+// プリセットの実体（Zスコア閾値など）は pipeline.SPIKE_DETECTION_PRESETS 側だけが持つ唯一の
+// ソースで、ここではラベルとキーを取得してプルダウンを作るだけ（ズレ防止）。
+async function loadSpikePresets() {
+  const sel = document.getElementById('p3-spike-preset');
+  try {
+    const res = await fetch('/api/spike-presets');
+    if (!res.ok) return;
+    const { default: defaultKey, presets } = await res.json();
+    sel.innerHTML = presets.map(p => `<option value="${escHtml(p.key)}">${escHtml(p.label)}</option>`).join('');
+    sel.value = defaultKey;
+  } catch (_) { /* プルダウンが空のままでも既定値でサーバ側にフォールバックする */ }
 }
 
 // ── Auto-populate downstream phase inputs ─────────────────────────────────
@@ -1516,11 +1535,13 @@ async function runPhase3() {
     const silenceCut = document.getElementById('p3-silence-cut').checked;
     const silenceThreshold = parseFloat(document.getElementById('p3-silence-threshold').value) || 2.0;
     const geminiModel = document.querySelector('input[name="p3-gemini-model"]:checked')?.value;
+    const spikePreset = document.getElementById('p3-spike-preset').value;
     const body = { transcription_path: transFile };
     if (videoForTrans) body.video_path = videoForTrans;
     if (extraPrompt) body.extra_prompt = extraPrompt;
     if (silenceCut) { body.silence_cut = true; body.silence_threshold = silenceThreshold; }
     if (geminiModel) body.gemini_model = geminiModel;
+    if (spikePreset) body.spike_preset = spikePreset;
 
     const res = await fetch('/api/jobs', {
       method: 'POST',
@@ -1749,7 +1770,14 @@ function loadClipsIntoGrid(clips) {
   grid.innerHTML = '';
   initGlobalClipSettings(clips[0]);
   clips.forEach((c, i) => {
-    if (!c.verticalMode || c.verticalMode === 'crop') c.verticalMode = 'split';
+    if (sourceIsVertical()) {
+      // ソースが縦動画の場合、二段構成（全体映像＋顔カメラ）は成立しないので
+      // 常にクロップ（＝そのまま全画面表示）にする。古いクリップJSONに
+      // verticalMode: 'split' が保存されていても縦ソースでは無効なので上書きする。
+      c.verticalMode = 'crop';
+    } else if (!c.verticalMode || c.verticalMode === 'crop') {
+      c.verticalMode = 'split';
+    }
     grid.appendChild(buildClipCard(c, i));
   });
   document.getElementById('ph4-clips-count').textContent = `クリップ一覧 (${clips.length} 件)`;
@@ -1829,6 +1857,13 @@ function buildClipCard(clip, idx) {
   card.dataset.srcAspect = clip.srcAspect != null ? String(clip.srcAspect) : '';
   card.dataset.captionEffect = clip.captionEffect || '';
 
+  // 縦動画ソースの場合、クロップ表示面は全画面＝そのまま表示が既定（中央・等倍）。
+  // 横動画ソースを人物にズームして切り抜く従来の既定値（右寄り・2倍ズーム）は
+  // 顔カメラ位置の目安として妥当だが、ソースが既に縦動画だと的外れなので分ける。
+  const defaultFaceZoom = sourceIsVertical() ? 1.0 : 2.0;
+  const defaultCropX = sourceIsVertical() ? 50 : 93;
+  const defaultFaceY = sourceIsVertical() ? 50 : 100;
+
   const cutDur = (clip.cutIntervals || []).reduce((s, iv) => s + (iv.endSec - iv.startSec), 0);
   const playedDur = (clip.end_sec - clip.start_sec) - cutDur;
   const initCutIntervals = clip.cutIntervals || [];
@@ -1862,6 +1897,10 @@ function buildClipCard(clip, idx) {
       </div>
     </div>
     <div class="clip-vert-options" style="display:${globalIsVertical() ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:8px">
+      ${sourceIsVertical() ? `
+      <div style="font-size:11px;color:var(--muted)">📱 縦動画ソースを検出したため、そのまま全画面のショート動画にします</div>
+      <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" checked hidden>
+      ` : `
       <div class="seg-toggle">
         <label class="seg-opt">
           <input type="radio" class="clip-vmode" name="vmode-${idx}" value="crop" ${clip.verticalMode === 'crop' ? 'checked' : ''}>
@@ -1872,6 +1911,7 @@ function buildClipCard(clip, idx) {
           二段構成<span class="seg-opt-sub">全体＋顔</span>
         </label>
       </div>
+      `}
       <div class="clip-face-pick-row">
         <button class="clip-face-pick-btn btn-primary" style="width:100%;font-size:13px;font-weight:700;padding:10px 10px;box-shadow:0 3px 10px rgba(255,127,176,.45)">🎯 静止画から切り抜き範囲を指定</button>
       </div>
@@ -1905,21 +1945,21 @@ function buildClipCard(clip, idx) {
           <div class="facecam-heading detail-subpanel-hd">${clip.verticalMode === 'crop' ? '■ 表示範囲' : '● 下段（顔カメラ）'}</div>
           <div class="clip-crop-row">
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-              <span>縮小</span><span>下段zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? 2.0}</b>x</span><span>拡大</span>
+              <span>縮小</span><span>下段zoom: <b class="face-zoom-val">${clip.faceCamZoom ?? defaultFaceZoom}</b>x</span><span>拡大</span>
             </div>
-            <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.01" value="${clip.faceCamZoom ?? 2.0}" style="width:100%">
+            <input type="range" class="clip-face-zoom" min="0.5" max="8" step="0.01" value="${clip.faceCamZoom ?? defaultFaceZoom}" style="width:100%">
           </div>
           <div class="clip-crop-row">
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-              <span>← 左</span><span>下段水平位置: <b class="crop-x-val">${clip.cropX ?? 93}</b>%</span><span>右 →</span>
+              <span>← 左</span><span>下段水平位置: <b class="crop-x-val">${clip.cropX ?? defaultCropX}</b>%</span><span>右 →</span>
             </div>
-            <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? 93}" style="width:100%">
+            <input type="range" class="clip-crop-x" min="0" max="100" step="1" value="${clip.cropX ?? defaultCropX}" style="width:100%">
           </div>
           <div class="clip-crop-row">
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:2px">
-              <span>↑ 上</span><span>下段垂直位置: <b class="face-y-val">${clip.faceCamY ?? 100}</b>%</span><span>下 ↓</span>
+              <span>↑ 上</span><span>下段垂直位置: <b class="face-y-val">${clip.faceCamY ?? defaultFaceY}</b>%</span><span>下 ↓</span>
             </div>
-            <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? 100}" style="width:100%">
+            <input type="range" class="clip-face-y" min="0" max="100" step="1" value="${clip.faceCamY ?? defaultFaceY}" style="width:100%">
           </div>
         </div>
       </div>
@@ -2788,18 +2828,17 @@ async function openInStudio() {
     }
     const { url, reverted } = await res.json();
     // Studio 上でずらした Offset/Scale 等の書き戻しは起動のたびに破棄される
+    // (ログへのフォーカスは行わない — バナーの表示・スクロールのみで通知する)
     if (reverted && reverted.length) {
-      showLog(4);
       appendLog('ph4-console', '✓ Studio で変更されたレイアウトを元に戻しました: ' + reverted.join(', '));
     }
-    
+
     // バナー表示＆リンク更新
     if (link) link.href = url;
     if (banner) {
       banner.style.display = 'flex';
       banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-    showLog(4);
     appendLog('ph4-console', `✓ Remotion Studio の準備が完了しました: <a href="${url}" target="_blank" style="color:#ec4899;font-weight:bold;text-decoration:underline;">${url} を開く ↗</a>`);
   } catch (err) {
     alert('Studio の起動に失敗しました: ' + err.message);
@@ -2906,6 +2945,12 @@ function isVideoFile(f) {
 // 手動の向き指定 UI はなく、API の src_aspect オーバーライドのみが残っている。
 function setSrcAspect(aspect) {
   phaseOut.srcAspect = aspect;
+}
+
+// ソース動画自体が縦（幅<高さ）かどうか。true の場合、二段構成（全体映像＋顔
+// カメラの切り出し）は成立しないため、クロップ表示（＝そのまま全画面）に一本化する。
+function sourceIsVertical() {
+  return phaseOut.srcAspect != null && phaseOut.srcAspect < 1;
 }
 
 // 無音カット閾値欄の表示切替

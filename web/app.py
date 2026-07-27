@@ -183,6 +183,7 @@ def _new_job(req: "StartReq") -> str:
         "_audio_mode": req.audio_mode,
         "_transcription_model": req.transcription_model,
         "_gemini_model": req.gemini_model,
+        "_spike_preset": req.spike_preset,
         "_trim_start_sec": req.trim_start_min * 60 if req.trim_start_min is not None else None,
         "_trim_end_sec": req.trim_end_min * 60 if req.trim_end_min is not None else None,
         "_extra_prompt": req.extra_prompt,
@@ -360,7 +361,7 @@ def _run_pipeline(job_id: str) -> None:
             log("▶ Asking Gemini for clip suggestions...")
             assert result is not None
             job["clips"] = pl.suggest_clips_from_result(
-                result, chat_path, job.get("_extra_prompt"), job.get("_gemini_model")
+                result, chat_path, job.get("_extra_prompt"), job.get("_gemini_model"), job.get("_spike_preset")
             )
             clips_file = pl.save_clips(job["clips"], t_path)
             job["clips_path"] = str(clips_file)
@@ -421,6 +422,7 @@ class StartReq(BaseModel):
     audio_mode: str = "mp3"               # audio conversion: "mp3" | "flac_fast" | "stream_copy"
     transcription_model: str = "elevenlabs"  # transcription backend: "elevenlabs" | "groq" (Gemini is suggestion-only)
     gemini_model: str | None = None        # clip-suggestion model override (default: pipeline.GEMINI_MODEL_ID)
+    spike_preset: str | None = None        # chat spike-detection sensitivity (see pipeline.SPIKE_DETECTION_PRESETS)
     trim_start_min: float | None = None  # clip video before transcription (minutes)
     trim_end_min: float | None = None    # clip video before transcription (minutes)
     clips_path: str | None = None          # skip suggestion (load from file)
@@ -937,8 +939,24 @@ def video_frame(video: str = Query(...), t: float = Query(0.0)):
                     headers={"Cache-Control": "private, max-age=3600"})
 
 
+@app.get("/api/spike-presets")
+def spike_presets():
+    """Chat spike-detection presets for the ③切り抜き提案 sensitivity dropdown
+    (web/static/index.html #p3-spike-preset). Labels live only in
+    pipeline.SPIKE_DETECTION_PRESETS so the dropdown can't drift from the actual
+    detection parameters."""
+    import pipeline as pl
+    return {
+        "default": pl.DEFAULT_SPIKE_PRESET,
+        "presets": [
+            {"key": key, "label": preset["label"]}
+            for key, preset in pl.SPIKE_DETECTION_PRESETS.items()
+        ],
+    }
+
+
 @app.get("/api/chat-activity")
-def chat_activity(chat: str = Query(...)):
+def chat_activity(chat: str = Query(...), preset: str = Query(None)):
     """Per-30s chat message counts plus detected spike ranges (with their actual
     messages) for the ③切り抜き提案 activity chart, computed on demand and never
     persisted (see pipeline.chat_activity()). This is a view onto the same
@@ -948,7 +966,7 @@ def chat_activity(chat: str = Query(...)):
     path = _resolve(Path(chat).name, DOWNLOADS_DIR)
     if not path.exists():
         raise HTTPException(404, f"チャットファイルが見つかりません: {path.name}")
-    return pl.chat_activity(path)
+    return pl.chat_activity(path, preset_key=preset or pl.DEFAULT_SPIKE_PRESET)
 
 
 @app.get("/api/clips/{filename}")
