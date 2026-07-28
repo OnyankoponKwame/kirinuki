@@ -177,9 +177,12 @@ def _read_chat_entries(chat_path: Path, limit_lines: int | None = None) -> list[
 # 揃えたい、といった用途向けに残してある）。
 # UI（web/static/index.html の p3-spike-preset プルダウン）・GET /api/spike-presets・
 # suggest_clips_from_result() の spike_preset 引数から、ここに定義したキーで選択する。
+# "description" はプルダウンの各 <option> の title 属性（ホバー時のツールチップ）に流れるだけで、
+# 検出ロジックには影響しない。
 SPIKE_DETECTION_PRESETS: dict[str, dict] = {
     "balanced": {
-        "label": "標準（バランス型）",
+        "label": "標準",
+        "description": "通常はこのままで問題ありません",
         "method": "zscore",
         "sigma_buckets": 1.5,  # ガウシアンカーネルの標準偏差（バケット単位。30秒バケットなら約45秒相当）
         "z_threshold": 2.0,
@@ -187,6 +190,7 @@ SPIKE_DETECTION_PRESETS: dict[str, dict] = {
     },
     "sensitive": {
         "label": "多めに拾う（高感度）",
+        "description": "検出される区間が少なく物足りないとき。小さな反応も拾いたいとき",
         "method": "zscore",
         "sigma_buckets": 1.0,  # 平滑化を弱め、単発の短いバーストが埋もれにくくする
         "z_threshold": 1.5,
@@ -194,19 +198,21 @@ SPIKE_DETECTION_PRESETS: dict[str, dict] = {
     },
     "strict": {
         "label": "大きな盛り上がりのみ（低感度）",
+        "description": "検出される区間が多すぎて絞りたいとき。特に反応が大きかった場面だけ知りたいとき",
         "method": "zscore",
         "sigma_buckets": 2.0,
         "z_threshold": 2.75,
         "min_count": 4,
     },
     "legacy_mean": {
-        "label": "従来ロジック（平均コメント数の1.5倍）",
+        "label": "シンプル型（平滑化なし）",
+        "description": "平滑化をせず、コメント数が平均の1.5倍を超えたかだけで判定する単純な方式（他の3つはガウシアン平滑化＋Zスコア）。以前のバージョンの検出結果に合わせたいときに",
         "method": "mean_multiplier",
         "multiplier": 1.5,
         "min_count": 3.0,
     },
 }
-DEFAULT_SPIKE_PRESET = "sensitive"
+DEFAULT_SPIKE_PRESET = "balanced"
 
 
 def _gaussian_smooth(values: list[float], sigma_buckets: float) -> list[float]:

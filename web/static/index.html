@@ -726,7 +726,7 @@ a.btn-dl, button.btn-dl { background: var(--blue); color: var(--text); border-ra
       <label>チャット盛り上がり分析</label>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="font-size:12px;color:var(--muted)">検出感度:</span>
-        <select id="p3-spike-preset" onchange="loadChatActivity()" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+        <select id="p3-spike-preset" onchange="loadChatActivity()" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);width:210px"></select>
       </div>
       <div id="p3-chat-activity-chart" style="display:flex;align-items:flex-end;gap:1px;height:48px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:4px;box-sizing:border-box;overflow:hidden"></div>
       <div id="p3-chat-activity-tooltip" style="position:fixed;display:none;pointer-events:none;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:10001"></div>
@@ -1224,12 +1224,25 @@ async function loadChatActivity() {
     note.textContent = spikes && spikes.length > 0
       ? `🔥 ${spikes.length} 箇所の盛り上がり区間を検出しました。下の一覧を開くとその区間の実際のコメントを確認できます。`
       : '目立った盛り上がり区間は検出されませんでした。';
+    // 固定の倍率しきい値だと配信によってはほぼ全件が該当してしまう（=強調の意味がなくなる）ため、
+    // 「検出された盛り上がりの中で倍率が上位2割」という相対順位で強調対象を決める。
+    const sortedRatios = (spikes || []).map(sp => sp.ratio).sort((a, b) => b - a);
+    const topCount = Math.max(1, Math.ceil(sortedRatios.length * 0.2));
+    const ratioThreshold = sortedRatios[topCount - 1];
     spikesWrap.innerHTML = (!spikes || spikes.length === 0) ? '' : spikes.map(sp => {
       const reactionStr = escHtml(sp.reactions && sp.reactions.length ? sp.reactions.join('、') : '一般的な会話');
       const messages = (sp.messages || []).map(m => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${escHtml(m)}</div>`).join('');
-      return `<details style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">`
+      const isTop = sp.ratio >= ratioThreshold;
+      // 上位2割は「読んで気づく」だけでなく「見て気づく」ように、カード自体にアクセント色の
+      // 左ボーダー＋淡い背景を敷く（数値をボールドにするだけだと一覧をざっと流し読みした
+      // ときに埋もれてしまうため）。
+      const cardStyle = isTop
+        ? 'background:rgba(236,72,153,.12);border:1px solid var(--border);border-left:3px solid var(--accent, #ec4899);border-radius:8px;padding:8px 10px 8px 9px'
+        : 'background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px';
+      const ratioStyle = isTop ? 'font-weight:800;color:var(--accent, #ec4899)' : '';
+      return `<details style="${cardStyle}">`
         + `<summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text)">`
-        + `🔥 ${secToHMS(sp.start)} 〜 ${secToHMS(sp.end)}（${sp.messages.length}件・通常の${sp.ratio.toFixed(1)}倍・${reactionStr}）`
+        + `🔥 ${secToHMS(sp.start)} 〜 ${secToHMS(sp.end)}（${sp.messages.length}件・<span style="${ratioStyle}">通常の${sp.ratio.toFixed(1)}倍</span>・${reactionStr}）`
         + `</summary>`
         + `<div style="margin-top:6px;max-height:180px;overflow-y:auto;font-size:12px;color:var(--muted)">${messages}</div>`
         + `</details>`;
@@ -1278,7 +1291,7 @@ async function loadSpikePresets() {
     const res = await fetch('/api/spike-presets');
     if (!res.ok) return;
     const { default: defaultKey, presets } = await res.json();
-    sel.innerHTML = presets.map(p => `<option value="${escHtml(p.key)}">${escHtml(p.label)}</option>`).join('');
+    sel.innerHTML = presets.map(p => `<option value="${escHtml(p.key)}" title="${escHtml(p.description || '')}">${escHtml(p.label)}</option>`).join('');
     sel.value = defaultKey;
   } catch (_) { /* プルダウンが空のままでも既定値でサーバ側にフォールバックする */ }
 }

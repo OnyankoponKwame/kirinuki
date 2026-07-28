@@ -949,7 +949,7 @@ def spike_presets():
     return {
         "default": pl.DEFAULT_SPIKE_PRESET,
         "presets": [
-            {"key": key, "label": preset["label"]}
+            {"key": key, "label": preset["label"], "description": preset.get("description", "")}
             for key, preset in pl.SPIKE_DETECTION_PRESETS.items()
         ],
     }
