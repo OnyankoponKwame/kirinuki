@@ -34,11 +34,14 @@ THEME_FIELDS = (
     "titleAccentColor",
     "captionTextColor",
     "captionActiveColor",
-    "captionActiveGlow",
     "captionFont",
     "titleFont",
     "titleBarMinHeight",
     "titleTopMargin",
+    "titleMaxLines",
+    "captionFontSize",
+    "splitTopRatio",
+    "captionPositionY",
 )
 
 

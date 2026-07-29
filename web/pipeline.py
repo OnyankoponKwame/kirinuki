@@ -1583,7 +1583,6 @@ def render_clip(
         "cropX": crop_x,
         "faceCamZoom": float(clip.get("faceCamZoom", 2.0)),
         "faceCamY": float(clip.get("faceCamY", 100)),
-        "splitTopRatio": float(clip.get("splitTopRatio", 4.5)),
         "mainZoom": float(clip.get("mainZoom", 1.0)),
         "mainCropX": float(clip.get("mainCropX", 50)),
         "mainCropY": float(clip.get("mainCropY", 50)),
@@ -1593,16 +1592,12 @@ def render_clip(
         ),
         "srcAspect": clip.get("srcAspect", src_aspect),
     }
-    if clip.get("captionFontSize"):
-        props_data["captionFontSize"] = int(clip["captionFontSize"])
     if effects_enabled and clip.get("captionEffect") in CAPTION_EFFECTS:
         props_data["captionEffect"] = clip["captionEffect"]
     if clip.get("captionFont"):
         props_data["captionFont"] = clip["captionFont"]
     if clip.get("cutIntervals"):
         props_data["cutIntervals"] = clip["cutIntervals"]
-    if clip.get("titleMaxLines") is not None:
-        props_data["titleMaxLines"] = int(clip["titleMaxLines"])
     props_data.update(theme_store.resolve_theme_props(clip.get("theme")))
     effect_count = sum(1 for c in props_data["captions"] if c.get("effect"))
     if effect_count:

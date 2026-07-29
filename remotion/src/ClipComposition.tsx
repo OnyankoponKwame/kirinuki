@@ -56,11 +56,32 @@ const themeColorsSchema = z.object({
   titleAccentColor: z.string(),
   captionTextColor: z.string(),
   captionActiveColor: z.string(),
-  captionActiveGlow: z.string(),
   captionFont: z.enum(CAPTION_FONT_KEYS).optional(),
   titleFont: z.enum(CAPTION_FONT_KEYS).optional(),
   titleBarMinHeight: z.number().min(150).max(600).optional(),
   titleTopMargin: z.number().min(0).max(20).optional(),
+  titleMaxLines: z
+    .union([z.literal(0), z.literal(2), z.literal(3)])
+    .optional()
+    .describe("タイトルバーの最大行数（0=非表示, 2, 3。省略時は2）"),
+  captionFontSize: z
+    .number()
+    .min(24)
+    .max(200)
+    .optional()
+    .describe("字幕フォントサイズ（px）。省略時は縦96/横72"),
+  splitTopRatio: z
+    .number()
+    .min(1)
+    .max(9)
+    .optional()
+    .describe("二段構成の上段高さ割合 (1〜9、0.5刻み、下段は 10-この値、デフォルト 4.5)"),
+  captionPositionY: z
+    .number()
+    .min(40)
+    .max(100)
+    .optional()
+    .describe("字幕の縦位置（画面上端からの% 40=上寄り 100=下端）。省略時は50"),
 });
 
 export const clipSchema = z.object({
@@ -107,17 +128,7 @@ export const clipSchema = z.object({
     .max(100)
     .optional()
     .describe("split上段垂直位置 % (0=上端 50=中央 100=下端、デフォルト 50)"),
-  splitTopRatio: z
-    .number()
-    .min(1)
-    .max(9)
-    .optional()
-    .describe("二段構成の上段高さ割合 (1〜9、0.5刻み、下段は 10-この値、デフォルト 4.5)"),
   title: z.string().describe("クリップタイトル（縦動画上部に常時表示）"),
-  titleMaxLines: z
-    .union([z.literal(0), z.literal(2), z.literal(3)])
-    .optional()
-    .describe("タイトルバーの最大行数（0=非表示, 2, 3。省略時は2）"),
   captions: z.array(captionSchema).describe("字幕リスト"),
   cutIntervals: z
     .array(cutIntervalSchema)
@@ -129,12 +140,6 @@ export const clipSchema = z.object({
     .max(10)
     .optional()
     .describe("ソース動画アスペクト比（幅÷高さ、デフォルト 16/9）"),
-  captionFontSize: z
-    .number()
-    .min(24)
-    .max(200)
-    .optional()
-    .describe("字幕フォントサイズ（px）"),
   captionFont: z
     .enum(CAPTION_FONT_KEYS)
     .optional()
@@ -180,7 +185,6 @@ const COMBINE_TOKENS_MS = 0;
 const SAFE_AREA_TOP = 40;
 const VERTICAL_PADDING = 12;
 const TITLE_H_PADDING = 4;
-const CROP_CAPTION_PADDING_BOTTOM = 260;
 const DEFAULT_SRC_ASPECT = 16 / 9;
 
 const GOOGLE_FONT_URL =
@@ -325,8 +329,6 @@ function renderCaptionPages(
   fps: number,
   captions: ClipProps["captions"],
   options?: {
-    paddingBottomOverride?: number;
-    topOffset?: number;
     captionFontSize?: number;
     captionFont?: ClipProps["captionFont"];
     theme?: ClipTheme;
@@ -358,8 +360,6 @@ function renderCaptionPages(
         }}>
         <CaptionPage
           page={page}
-          paddingBottomOverride={options?.paddingBottomOverride}
-          topOffset={options?.topOffset}
           captionFontSize={options?.captionFontSize}
           captionFont={options?.captionFont}
           theme={options?.theme}
@@ -440,13 +440,10 @@ export const ClipComposition: React.FC<ClipProps> = ({
   mainZoom,
   mainCropX,
   mainCropY,
-  splitTopRatio,
   title,
-  titleMaxLines,
   captions,
   cutIntervals,
   srcAspect,
-  captionFontSize,
   captionFont,
   theme: themeKey,
   themeColors,
@@ -533,6 +530,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
     [effectiveCaptions],
   );
 
+  const titleMaxLines = theme?.titleMaxLines ?? 2;
   const displayTitle = useMemo(() => {
     if (titleMaxLines === 0) return "";
     if (!title) return title;
@@ -554,7 +552,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
   const panicIntensity = getPanicIntensity(currentMs, effectiveEffectRanges);
 
   const captionOptions = {
-    captionFontSize,
+    captionFontSize: theme?.captionFontSize,
     captionFont: themeColors?.captionFont ?? theme?.captionFont ?? captionFont ?? "mochiy",
     theme,
   };
@@ -600,14 +598,14 @@ export const ClipComposition: React.FC<ClipProps> = ({
         </div>
         {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, effectiveCaptions, { ...captionOptions, paddingBottomOverride: CROP_CAPTION_PADDING_BOTTOM })}
+          {renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}
         </AbsoluteFill>
       </AbsoluteFill>
     );
   } else {
     // 縦動画: 二段構成モード
     const mainVideoTop = shortsSafeTop + titleBarHeight;
-    const topRatio = splitTopRatio ?? 4.5;
+    const topRatio = theme?.splitTopRatio ?? 4.5;
     const mainVideoH = Math.round((height - mainVideoTop) * topRatio / 10);
     const bottomTop = mainVideoTop + mainVideoH;
     const bottomH = height - bottomTop;
@@ -625,8 +623,6 @@ export const ClipComposition: React.FC<ClipProps> = ({
     const faceCamVideoTop = -Math.round((faceCamInnerH - bottomH) * ((faceCamY ?? 50) / 100));
     const rawFaceLeft = Math.round(width / 2 - faceCamInnerW * (cropX / 100));
     const faceCamVideoLeft = Math.max(-(faceCamInnerW - width), Math.min(0, rawFaceLeft));
-
-    const captionTopOffset = bottomTop + 24;
 
     content = (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
@@ -677,7 +673,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
           </div>
         </div>
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, effectiveCaptions, { ...captionOptions, topOffset: captionTopOffset })}
+          {renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}
         </AbsoluteFill>
       </AbsoluteFill>
     );

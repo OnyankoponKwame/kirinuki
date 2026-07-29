@@ -200,10 +200,11 @@ def split_geometry(
     faceCamY), and the title bar's height (which the panel boundary depends on) is
     only derivable from the title text by this module's port of calcTitleBar().
 
-    `safe_top_ratio` / `title_bar_min_height` come from the clip's theme (see
-    theme_store.THEME_FIELDS' titleTopMargin / titleBarMinHeight) — both are
-    per-theme in ClipComposition.tsx, so they must be passed in here rather than
-    read off the module constants whenever a clip's theme overrides them.
+    `safe_top_ratio` / `title_bar_min_height` / `title_max_lines` come from the clip's
+    theme (see theme_store.THEME_FIELDS' titleTopMargin / titleBarMinHeight /
+    titleMaxLines) — all three are per-theme in ClipComposition.tsx, so they must be
+    passed in here rather than read off the module constants/defaults whenever a
+    clip's theme overrides them.
     """
     safe_top = _jsround(seq_h * safe_top_ratio)
     title_bar_h = _calc_title_bar_height(title, seq_w, title_bar_min_height, title_max_lines)
@@ -226,9 +227,10 @@ def compute_layers(clip: dict, src_aspect: float, theme: dict | None = None) -> 
     """Reproduce ClipComposition's framing as a stack of positioned video layers.
 
     `theme` (a resolved themeColors dict, see theme_store.resolve_theme_props) supplies
-    the titleTopMargin / titleBarMinHeight overrides that shift the split-mode panel
-    boundary — colors and fonts don't matter here since no title text is drawn (see
-    module docstring), but the gap it reserves still has to match Remotion's.
+    the titleTopMargin / titleBarMinHeight / titleMaxLines / splitTopRatio overrides that
+    shift the split-mode panel boundary — colors and fonts don't matter here since no
+    title text is drawn (see module docstring), but the gap it reserves still has to
+    match Remotion's.
 
     Returned bottom-most first (V1, V2, ...).
     """
@@ -255,9 +257,10 @@ def compute_layers(clip: dict, src_aspect: float, theme: dict | None = None) -> 
     top_margin = theme.get("titleTopMargin")
     safe_top_ratio = (top_margin / 100) if top_margin is not None else SHORTS_SAFE_TOP_RATIO
     title_bar_min_height = theme.get("titleBarMinHeight") or MIN_TITLE_BAR_H
-    title_max_lines = 2 if clip.get("titleMaxLines") is None else int(clip["titleMaxLines"])
+    title_max_lines = 2 if theme.get("titleMaxLines") is None else int(theme["titleMaxLines"])
+    split_top_ratio = float(theme.get("splitTopRatio") or 4.5)
     geo = split_geometry(
-        str(clip.get("title", "")), float(clip.get("splitTopRatio", 4.5) or 4.5), seq_w, seq_h,
+        str(clip.get("title", "")), split_top_ratio, seq_w, seq_h,
         safe_top_ratio=safe_top_ratio, title_bar_min_height=title_bar_min_height,
         title_max_lines=title_max_lines,
     )

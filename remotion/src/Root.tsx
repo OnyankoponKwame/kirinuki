@@ -29,7 +29,6 @@ export const RemotionRoot: React.FC = () => {
           faceCamY: 100,
           title: "",
           captions: [],
-          captionFontSize: 96,
           captionFont: "mochiy",
         }}
         calculateMetadata={calculateMetadata}

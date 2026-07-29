@@ -41,7 +41,6 @@ function makeActiveShadow(theme: ClipTheme): string {
   return [
     ...outline("#FFFFFF"),
     `5px 5px 0px ${theme.titleAccentColor}`,
-    `0 0 15px ${theme.captionActiveGlow}`,
   ].join(",");
 }
 
@@ -308,15 +307,13 @@ function getActiveTokenTransform(type: CaptionEffect, progress: number): string 
 
 export const CaptionPage: React.FC<{
   page: TikTokPage;
-  paddingBottomOverride?: number;
-  topOffset?: number;
   captionFontSize?: number;
   captionFont?: CaptionFontKey;
   theme?: ClipTheme;
   effect?: CaptionEffect;
   suffix?: string;
   isComment?: boolean;
-}> = ({ page, paddingBottomOverride, topOffset, captionFontSize, captionFont, theme, effect, suffix, isComment }) => {
+}> = ({ page, captionFontSize, captionFont, theme, effect, suffix, isComment }) => {
   const t = theme ?? THEMES[DEFAULT_THEME_KEY];
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -345,12 +342,25 @@ export const CaptionPage: React.FC<{
   const textTransform = getTextTransform(effectType, absoluteTimeMs, intensity);
 
   const fontSize = captionFontSize ?? (isVertical ? 96 : 72);
-  const paddingBottom = paddingBottomOverride ?? (isVertical ? 160 : 64);
 
-  const posStyle =
-    topOffset !== undefined
-      ? { justifyContent: "flex-start", alignItems: "center", paddingTop: topOffset }
-      : { justifyContent: "flex-end", alignItems: "center", paddingBottom };
+  // 字幕の縦位置は画面上端からの%指定（40=上寄り 100=下端、theme.captionPositionY）。
+  // box を height:auto で中身の実高さに縮めたうえで position:absolute の top:X% に置き、
+  // translateY(-50%) で中央合わせする（行数が変わっても位置がずれない定番のテクニック）。
+  // AbsoluteFill の既定値（bottom:0 / height:100% など）が残っていると shrink-to-fit が
+  // 効かず top がそのまま基準点になってしまうため、6方向すべて明示的に上書きする。
+  const positionY = t.captionPositionY ?? 50;
+  const posStyle: React.CSSProperties = {
+    position: "absolute",
+    top: `${positionY}%`,
+    bottom: "auto",
+    right: "auto",
+    left: 0,
+    width: "100%",
+    height: "auto",
+    display: "flex",
+    alignItems: "center",
+    transform: "translateY(-50%)",
+  };
 
   if (isComment) {
     const bubbleBg = "rgba(255, 255, 255, 0.95)";

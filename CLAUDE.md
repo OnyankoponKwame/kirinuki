@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Language
+
+必ず日本語で回答すること。コード中のコメントも日本語で書くこと。
+
 ## What this project does
 
 Kirinuki is a tool that automatically generates clip videos from YouTube live streams. It downloads a video, transcribes audio (ElevenLabs Scribe by default; Groq Whisper is also selectable — Gemini is not used for transcription), uses Gemini to suggest interesting segments, and renders MP4 clips with subtitles via Remotion (React-based video renderer).
@@ -145,10 +149,10 @@ percent sliders (the box can land up to half a step off, ~0.5% of the frame).
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).
 - `remotion/src/CaptionPage.tsx` — Renders one TikTok-style caption page with karaoke-style active-word highlighting (white text, pink active token).
-- `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (the per-clip Studio preview compositions, auto-generated into `studio-src/`).
+- `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (a stub in `src/`; see below for where the real per-clip compositions live).
 - `remotion/src/studioCompositions.tsx` — a **stub** (`() => null`) that only exists so
   `Root.tsx` compiles for CLI renders. The real per-clip compositions are generated into
-  `remotion/studio-src/` — see below.
+  `remotion/studio-src/StudioRoot.tsx` — see below.
 - `remotion/src/studioViewReset.ts` — Studio keeps the preview canvas' zoom and pan in
   `localStorage`, so an accidental ctrl+scroll survives a Studio restart with no obvious way
   back. Every "Studio で確認" press stamps a fresh token into the generated file (which is why
@@ -165,8 +169,8 @@ declares that JSX** — i.e. `ClipComposition.tsx` itself (it also inlines `defa
 subsequent CLI render produces, and the only undo is right-click → Reset per field.
 
 So `/api/studio/open` mirrors `remotion/src` into `remotion/studio-src` (`_sync_studio_src()`)
-and starts Studio with `studio-src/index.ts` as its entry point. Studio's write-backs land in
-the copy; every "Studio で確認" press overwrites the copy from `remotion/src` again, which is
+and starts Studio with `studio-src/studio-entry.ts` as its entry point. Studio's write-backs land
+in the copy; every "Studio で確認" press overwrites the copy from `remotion/src` again, which is
 what makes the button reset the layout. Files that had to be restored come back in the
 response's `reverted` field and are logged in the phase-4 console.
 
@@ -178,6 +182,21 @@ response's `reverted` field and are logged in the phase-4 console.
   `remotion/src` yourself before the next press.
 - `npm start` in `remotion/` still runs Studio on `src/` directly — that instance **can** write
   to the real sources, and shows no clip compositions (the stub).
+- The per-clip `<Composition>` elements are generated with their `id` and `defaultProps` inline
+  (not through a named component like the old `StudioCompositions`), directly into
+  `studio-src/StudioRoot.tsx` — required for Remotion's Props-editor "save default props" to
+  work at all, per
+  [its troubleshooting doc](https://www.remotion.dev/docs/troubleshooting/cannot-save-default-props):
+  that feature parses only whatever single file it resolves as "the root file" and never follows
+  imports, so a `<StudioCompositions />` reference wouldn't do — the compositions must be
+  literal JSX in that file. Getting Remotion to resolve *that* file (rather than the real
+  `remotion/src/Root.tsx`, which is otherwise what its `known root paths` search always finds,
+  since `remotionRoot` is fixed to `remotion/` regardless of which entry point Studio was
+  started with) is what the `studio-entry.ts` → `StudioRoot.tsx` naming accomplishes: an entry
+  point whose name ends in `-entry` makes Remotion look for a matching PascalCase root file
+  *next to that entry point* instead (see `_STUDIO_ENTRY_TS` in `web/app.py`). Without this,
+  Props-editor saves on a per-clip composition fail with "Could not find defaultProps for
+  composition ...".
 
 ### Transcription (`audio-chunking/`, `web/`) — Gemini is not used here, only for clip suggestion
 - `web/elevenlabs_transcribe.py` — **Default** backend. ElevenLabs Speech-to-Text has no file size/duration limit, so the whole preprocessed audio file is sent in a single request (no chunking). Talks to the REST endpoint directly with `requests` rather than the official `elevenlabs` SDK — that package's `client.py` eagerly imports every product line (dubbing, voices, studio, conversational AI, ...), and some of those paths are deep enough to exceed Windows' MAX_PATH once staged into the installer. Its response only has word-level timestamps, not segments, so `_words_to_segments()` regroups words into Whisper/Groq-like sentence segments (splits on silence gaps, sentence-ending punctuation, or length) for the rest of the pipeline.
@@ -205,12 +224,6 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `cropX` — horizontal crop position 0–100%
 - `faceCamZoom`, `faceCamY` — for split mode face-cam
 - `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
-- `titleMaxLines` — caps the title bar's auto-wrap at `2` or `3` lines, or `0` to hide the title bar
-  entirely (the `title` text itself is untouched, so switching back doesn't lose it). Omitted/`None`
-  behaves like `2` (also the web UI's default for new clips). Read by `ClipComposition.tsx`'s
-  `autoSplitTitle()`/`calcTitleBar()` and mirrored in `premiere_export.py`'s `_auto_split_title()` /
-  `_calc_title_bar_height()` / `split_geometry()`, since the title bar height feeds into the
-  split-mode panel boundary (`mainTop`) that both the Premiere export and the position picker rely on.
 - `captions` — list of `{text, startMs, endMs, effect?, isComment?}` relative to clip start. Not stored
   on the clip itself — `pipeline.make_captions()` rebuilds this fresh from the transcript segments
   (`*_full.json`) on every render. `effect` is auto-detected per segment
