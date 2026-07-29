@@ -3031,7 +3031,12 @@ async function uploadVideoFile(file) {
     const fd = new FormData();
     fd.append('file', file);
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.status); }
+    if (!res.ok) {
+      const text = await res.text();
+      let detail;
+      try { detail = JSON.parse(text).detail; } catch { detail = text; }
+      throw new Error(detail || res.status);
+    }
     const { filename } = await res.json();
 
     await Promise.all([

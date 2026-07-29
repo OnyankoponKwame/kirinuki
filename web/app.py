@@ -810,9 +810,13 @@ async def upload_video(file: UploadFile = File(...)):
     safe_name = Path(file.filename).name
     if not safe_name:
         raise HTTPException(400, "Invalid filename")
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     dest = DOWNLOADS_DIR / safe_name
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        with dest.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except OSError as e:
+        raise HTTPException(500, f"アップロードに失敗しました: {e}")
     return {"filename": safe_name}
 
 
