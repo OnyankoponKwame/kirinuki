@@ -23,7 +23,10 @@ import {
   CAPTION_EFFECTS,
   CAPTION_FONT_KEYS,
   CAPTION_FONT_PRESETS,
+  SFX,
+  getEffectMotion,
   type CaptionEffect,
+  type SfxKey,
 } from "./captionStyles";
 import studioData from "./studioData.json";
 
@@ -148,6 +151,20 @@ export const clipSchema = z.object({
     .enum(CAPTION_EFFECTS)
     .optional()
     .describe("クリップ提案時に選ばれた字幕基本エフェクト"),
+  captionMotion: z
+    .boolean()
+    .optional()
+    .describe("字幕の出現アニメーションと映像パンチインを有効にする（省略時 true）"),
+  captionSfx: z
+    .boolean()
+    .optional()
+    .describe("字幕エフェクトに連動した効果音を鳴らす（省略時 true）"),
+  captionSfxVolume: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("効果音のマスター音量（0〜1、省略時 0.7）"),
   theme: z.string().optional().describe("カラーテーマ名"),
   themeColors: themeColorsSchema
     .optional()
@@ -324,14 +341,97 @@ function calcTitleBar(title: string, containerWidth: number, minBarHeight: numbe
   return { titleBarHeight, titleFontSize };
 }
 
+// ── 字幕ページのメタ情報（効果音・パンチイン） ───────────────────────────────
+// 「テロップと効果音はセット」が定石だが、鳴らしっぱなしは逆に耳が疲れるので
+// クールダウンを設けて間引く。パンチイン（映像を一瞬寄せる強調）はさらに間隔を空ける。
+
+type PageMeta = {
+  startMs: number;
+  effect?: CaptionEffect;
+  isComment: boolean;
+  sfx: SfxKey | null;
+  sfxStartMs: number;
+  punchIn: number; // 1 でパンチインなし
+};
+
+// 素材が1〜2秒あるので、間隔を詰めすぎると余韻同士が重なって濁る
+const SFX_MIN_GAP_MS = 600; // 効果音同士の最小間隔
+const SFX_SAME_MIN_GAP_MS = 1400; // 同じ効果音の最小間隔
+const PUNCH_MIN_GAP_MS = 1400; // パンチインの最小間隔
+const PUNCH_IN_MS = 90; // 寄るのにかける時間
+const PUNCH_OUT_MS = 520; // 元に戻るのにかける時間
+
+function buildPageMeta(
+  pages: ReturnType<typeof createTikTokStyleCaptions>["pages"],
+  captions: ClipProps["captions"],
+  opts: { motionOn: boolean; sfxOn: boolean },
+): PageMeta[] {
+  let lastSfxMs = -Infinity;
+  let lastPunchMs = -Infinity;
+  const lastByKey: Partial<Record<SfxKey, number>> = {};
+
+  return pages.map((page) => {
+    // ページ開始時刻と重なるキャプションのエフェクトを採用
+    const matchCaption = captions.find(c => c.startMs <= page.startMs && c.endMs > page.startMs);
+    const effect =
+      matchCaption?.effect && matchCaption.effect !== "emphasis"
+        ? (matchCaption.effect as CaptionEffect)
+        : undefined;
+    const isComment = matchCaption?.isComment ?? false;
+    const motion = getEffectMotion(effect);
+
+    let sfx: SfxKey | null = null;
+    let sfxStartMs = page.startMs;
+    // コメント吹き出しは専用のポップ音を持っているので二重に鳴らさない
+    if (opts.sfxOn && motion.sfx && !isComment) {
+      const key = motion.sfx;
+      const gapOk = page.startMs - lastSfxMs >= SFX_MIN_GAP_MS;
+      const sameOk = page.startMs - (lastByKey[key] ?? -Infinity) >= SFX_SAME_MIN_GAP_MS;
+      if (gapOk && sameOk) {
+        sfx = key;
+        // swell のような「盛り上がり音」は頂点が字幕の出現と重なるよう先行させる
+        sfxStartMs = Math.max(0, page.startMs - SFX[key].leadMs);
+        lastSfxMs = page.startMs;
+        lastByKey[key] = page.startMs;
+      }
+    }
+
+    let punchIn = 1;
+    if (opts.motionOn && motion.punchIn > 1 && page.startMs - lastPunchMs >= PUNCH_MIN_GAP_MS) {
+      punchIn = motion.punchIn;
+      lastPunchMs = page.startMs;
+    }
+
+    return { startMs: page.startMs, effect, isComment, sfx, sfxStartMs, punchIn };
+  });
+}
+
+/** 字幕の出現に合わせて映像を一瞬寄せる（Hormozi 系ショートの定番のデジタルズーム）。 */
+function getPunchScale(currentMs: number, meta: PageMeta[]): number {
+  let scale = 1;
+  for (const m of meta) {
+    if (m.startMs > currentMs) break; // meta はページ順＝時刻順
+    if (m.punchIn <= 1) continue;
+    const dt = currentMs - m.startMs;
+    if (dt > PUNCH_IN_MS + PUNCH_OUT_MS) continue;
+    const k =
+      dt < PUNCH_IN_MS
+        ? (1 - Math.cos((dt / PUNCH_IN_MS) * Math.PI)) / 2
+        : (1 + Math.cos(((dt - PUNCH_IN_MS) / PUNCH_OUT_MS) * Math.PI)) / 2;
+    scale = Math.max(scale, 1 + (m.punchIn - 1) * k);
+  }
+  return scale;
+}
+
 function renderCaptionPages(
   pages: ReturnType<typeof createTikTokStyleCaptions>["pages"],
   fps: number,
-  captions: ClipProps["captions"],
+  meta: PageMeta[],
   options?: {
     captionFontSize?: number;
     captionFont?: ClipProps["captionFont"];
     theme?: ClipTheme;
+    motionOn?: boolean;
   },
 ) {
   return pages.map((page, i) => {
@@ -342,12 +442,7 @@ function renderCaptionPages(
       : startFrame + fps;
     const dur = endFrame - startFrame;
     if (dur <= 0) return null;
-    // ページ開始時刻と重なるキャプションのエフェクトを採用
-    const matchCaption = captions.find(c => c.startMs <= page.startMs && c.endMs > page.startMs);
-    const effect =
-      matchCaption?.effect && matchCaption.effect !== "emphasis"
-        ? (matchCaption.effect as CaptionEffect)
-        : undefined;
+    const { effect, isComment } = meta[i];
     const isLastPage = i === pages.length - 1;
     const suffix = effect === "sad" && isLastPage ? "😭" : undefined;
     return (
@@ -365,8 +460,23 @@ function renderCaptionPages(
           theme={options?.theme}
           effect={effect}
           suffix={suffix}
-          isComment={matchCaption?.isComment ?? false}
+          isComment={isComment}
+          motionEnabled={options?.motionOn}
         />
+      </Sequence>
+    );
+  });
+}
+
+/** 効果音を字幕ページとは別の Sequence に置く（ページより音が長くても切れないように） */
+function renderCaptionSfx(meta: PageMeta[], fps: number, volume: number) {
+  return meta.map((m, i) => {
+    if (!m.sfx) return null;
+    const from = Math.max(0, Math.round((m.sfxStartMs / 1000) * fps));
+    const dur = Math.max(1, Math.ceil((SFX[m.sfx].durMs / 1000) * fps));
+    return (
+      <Sequence key={`sfx-${i}`} from={from} durationInFrames={dur}>
+        <Audio src={staticFile(`sfx/${m.sfx}.mp3`)} volume={volume * SFX[m.sfx].gain} />
       </Sequence>
     );
   });
@@ -445,6 +555,9 @@ export const ClipComposition: React.FC<ClipProps> = ({
   cutIntervals,
   srcAspect,
   captionFont,
+  captionMotion,
+  captionSfx,
+  captionSfxVolume,
   theme: themeKey,
   themeColors,
 }) => {
@@ -551,10 +664,25 @@ export const ClipComposition: React.FC<ClipProps> = ({
   const currentMs = (frame / fps) * 1000;
   const panicIntensity = getPanicIntensity(currentMs, effectiveEffectRanges);
 
+  const motionOn = captionMotion !== false;
+  const sfxOn = captionSfx !== false;
+  const pageMeta = useMemo(
+    () => buildPageMeta(pages, effectiveCaptions, { motionOn, sfxOn }),
+    [pages, effectiveCaptions, motionOn, sfxOn],
+  );
+
+  // 字幕の出現に合わせた映像の一瞬のデジタルズーム
+  const punchScale = motionOn ? getPunchScale(currentMs, pageMeta) : 1;
+  const punchStyle: React.CSSProperties =
+    punchScale > 1
+      ? { transform: `scale(${punchScale.toFixed(4)})`, transformOrigin: "center center" }
+      : {};
+
   const captionOptions = {
     captionFontSize: theme?.captionFontSize,
     captionFont: themeColors?.captionFont ?? theme?.captionFont ?? captionFont ?? "mochiy",
     theme,
+    motionOn,
   };
 
   // ── Build layout content ──────────────────────────────────────────────────
@@ -565,12 +693,14 @@ export const ClipComposition: React.FC<ClipProps> = ({
     // 横動画
     content = (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
-        {hasVideo && <Video
-          src={staticFile(videoSrc)}
-          style={{ width: "100%", height: "100%", objectFit: "contain" }}
-          trimBefore={trimBefore}
-        />}
-        <AbsoluteFill>{renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}</AbsoluteFill>
+        <AbsoluteFill style={punchStyle}>
+          {hasVideo && <Video
+            src={staticFile(videoSrc)}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            trimBefore={trimBefore}
+          />}
+        </AbsoluteFill>
+        <AbsoluteFill>{renderCaptionPages(pages, fps, pageMeta, captionOptions)}</AbsoluteFill>
       </AbsoluteFill>
     );
   } else if (verticalMode === "crop") {
@@ -584,21 +714,24 @@ export const ClipComposition: React.FC<ClipProps> = ({
     content = (
       <AbsoluteFill style={{ backgroundColor: "#111" }}>
         <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
-          {hasVideo && <Video
-            src={staticFile(videoSrc)}
-            style={{
-              position: "absolute",
-              width: scaledW,
-              height: scaledH,
-              top: topOffset,
-              left: leftOffset,
-            }}
-            trimBefore={trimBefore}
-          />}
+          {/* パンチインは映像の枠ではなく中身に掛ける（枠を拡大するとレイアウトが崩れるため） */}
+          <div style={{ position: "absolute", inset: 0, ...punchStyle }}>
+            {hasVideo && <Video
+              src={staticFile(videoSrc)}
+              style={{
+                position: "absolute",
+                width: scaledW,
+                height: scaledH,
+                top: topOffset,
+                left: leftOffset,
+              }}
+              trimBefore={trimBefore}
+            />}
+          </div>
         </div>
         {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}
+          {renderCaptionPages(pages, fps, pageMeta, captionOptions)}
         </AbsoluteFill>
       </AbsoluteFill>
     );
@@ -636,16 +769,19 @@ export const ClipComposition: React.FC<ClipProps> = ({
             overflow: "hidden",
           }}
         >
-          {hasVideo && <Video
-            src={staticFile(videoSrc)}
-            style={{
-              position: "absolute",
-              width: mainInnerW,
-              height: mainInnerH,
-              top: mainVideoVideoTop,
-              left: mainVideoVideoLeft
-            }}
-            trimBefore={trimBefore} />}
+          {/* パンチインは映像の枠ではなく中身に掛ける（枠を拡大するとレイアウトが崩れるため） */}
+          <div style={{ position: "absolute", inset: 0, ...punchStyle }}>
+            {hasVideo && <Video
+              src={staticFile(videoSrc)}
+              style={{
+                position: "absolute",
+                width: mainInnerW,
+                height: mainInnerH,
+                top: mainVideoVideoTop,
+                left: mainVideoVideoLeft
+              }}
+              trimBefore={trimBefore} />}
+          </div>
         </div>
         {displayTitle && <TitleBar title={displayTitle} titleFontSize={titleFontSize} titleBarHeight={titleBarHeight} theme={theme} topOffset={shortsSafeTop} />}
         <div
@@ -658,7 +794,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
             overflow: "hidden",
           }}
         >
-          <div style={{ position: "relative", width, height: bottomH }}>
+          <div style={{ position: "relative", width, height: bottomH, ...punchStyle }}>
             {hasVideo && <Video
               src={staticFile(videoSrc)}
               style={{
@@ -673,7 +809,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
           </div>
         </div>
         <AbsoluteFill>
-          {renderCaptionPages(pages, fps, effectiveCaptions, captionOptions)}
+          {renderCaptionPages(pages, fps, pageMeta, captionOptions)}
         </AbsoluteFill>
       </AbsoluteFill>
     );
@@ -687,6 +823,7 @@ export const ClipComposition: React.FC<ClipProps> = ({
   return (
     <AbsoluteFill style={{ overflow: "hidden" }}>
       {content}
+      {sfxOn && renderCaptionSfx(pageMeta, fps, captionSfxVolume ?? 0.7)}
       {isStudio && (
         <div style={{
           position: "absolute",

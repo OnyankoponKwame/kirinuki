@@ -910,11 +910,12 @@ def save_clips(clips: list[dict], transcription_path: Path) -> Path:
 
 CAPTION_EFFECTS = {
     "anger", "scary", "panic", "laugh", "hype", "pop", "punch", "pill", "neon",
-    "glitch", "gaming", "cute", "news", "whisper", "question", "shock",
+    "glitch", "gaming", "cute", "news", "whisper", "question", "shock", "sad",
 }
 
+# sad は laugh より後ろ（「泣くほど笑った」のような文で laugh を優先させる）
 _EFFECT_PRIORITY = [
-    "anger", "scary", "panic", "shock", "laugh", "gaming", "hype", "cute",
+    "anger", "scary", "panic", "shock", "laugh", "sad", "gaming", "hype", "cute",
     "question", "whisper", "news", "glitch", "punch", "pill",
     "neon", "pop",
 ]
@@ -967,6 +968,15 @@ _EFFECT_KEYWORDS: dict[str, set[str]] = {
         "爆笑", "吹いた", "ふいた",
         "面白", "おもろ", "おもしろ",
         "ジワる", "じわる",
+    },
+    # 悲しみ・喪失・別れ（「最後」「終わり」は文脈違いで誤爆しやすいので入れない）
+    "sad": {
+        "悲しい", "かなしい", "悲しく", "つらい", "辛い",
+        "泣ける", "泣いた", "泣きそう", "泣いちゃ", "涙", "号泣",
+        "さみしい", "寂しい", "さびしい", "切ない", "せつない",
+        "落ち込", "へこむ", "ヘコむ", "残念",
+        "悔しい", "くやしい",
+        "さようなら", "さよなら", "お別れ", "引退", "卒業",
     },
     # ゲーム実況・勝負どころ
     "gaming": {
@@ -1188,6 +1198,22 @@ def suggest_clips_from_result(
 
 # ── Silence cut ───────────────────────────────────────────────────────────────
 
+def _merge_cut_intervals(intervals: list[dict]) -> list[dict]:
+    """重なり合う／連続するカット区間を1本にまとめる（startSec順）。"""
+    valid = [
+        iv for iv in intervals
+        if iv.get("startSec") is not None and iv.get("endSec") is not None
+        and iv["endSec"] > iv["startSec"]
+    ]
+    merged: list[dict] = []
+    for iv in sorted(valid, key=lambda x: x["startSec"]):
+        if merged and iv["startSec"] <= merged[-1]["endSec"]:
+            merged[-1]["endSec"] = max(merged[-1]["endSec"], iv["endSec"])
+        else:
+            merged.append({"startSec": iv["startSec"], "endSec": iv["endSec"]})
+    return merged
+
+
 def cut_silence_from_clips(
     clips: list[dict], segments: list[dict], min_silence_sec: float = 2.0
 ) -> list[dict]:
@@ -1222,8 +1248,11 @@ def cut_silence_from_clips(
                     cut_intervals.append({"startSec": cut_start, "endSec": cut_end})
 
         new_clip = {**clip, "start_sec": trimmed_start, "end_sec": trimmed_end}
-        if cut_intervals:
-            new_clip["cutIntervals"] = cut_intervals
+        # Gemini が意図して指定したカット区間（脱線の除去・伏線回収のための飛ばしなど）は
+        # 無音カットで上書きせず、無音由来の区間とマージする。
+        merged = _merge_cut_intervals(list(clip.get("cutIntervals") or []) + cut_intervals)
+        if merged:
+            new_clip["cutIntervals"] = merged
         result.append(new_clip)
 
     return result
@@ -1573,6 +1602,9 @@ def render_clip(
 
     video_abs = video_path.resolve()
     effects_enabled = bool(clip.get("captionEffectsEnabled", True))
+    # 効果音は字幕エフェクトの一部（エフェクトを切ったら音も鳴らさない）
+    sfx_enabled = effects_enabled and bool(clip.get("captionSfxEnabled", True))
+    sfx_volume = max(0.0, min(1.0, float(clip.get("captionSfxVolume", 0.7))))
 
     props_data: dict = {
         "videoSrc": video_abs.name,
@@ -1591,6 +1623,9 @@ def render_clip(
             make_captions(segments, start_sec, end_sec, clip.get("captionEffect"), effects_enabled=effects_enabled)
         ),
         "srcAspect": clip.get("srcAspect", src_aspect),
+        "captionMotion": effects_enabled,
+        "captionSfx": sfx_enabled,
+        "captionSfxVolume": sfx_volume,
     }
     if effects_enabled and clip.get("captionEffect") in CAPTION_EFFECTS:
         props_data["captionEffect"] = clip["captionEffect"]
@@ -1601,7 +1636,7 @@ def render_clip(
     props_data.update(theme_store.resolve_theme_props(clip.get("theme")))
     effect_count = sum(1 for c in props_data["captions"] if c.get("effect"))
     if effect_count:
-        log(f"  ⚡ エフェクト付き字幕: {effect_count} 件")
+        log(f"  ⚡ エフェクト付き字幕: {effect_count} 件" + ("（効果音あり）" if sfx_enabled else ""))
     props = json.dumps(props_data, ensure_ascii=False)
 
     output_path = out_dir / f"{index:02d}_{safe}.mp4"
@@ -1629,6 +1664,10 @@ def render_clip(
             src = REMOTION_DIR / "public" / name
             if src.exists():
                 shutil.copy2(src, tmp_pub / name)
+        # 字幕エフェクト連動の効果音（tools/gen_caption_sfx.py が生成する）
+        sfx_src = REMOTION_DIR / "public" / "sfx"
+        if sfx_src.is_dir():
+            shutil.copytree(sfx_src, tmp_pub / "sfx", dirs_exist_ok=True)
 
         proc = subprocess.Popen(
             cfg.get_npx_cmd() + [

@@ -49,6 +49,21 @@ The project has three layers that communicate through the filesystem and subproc
 - `web/pipeline.py` — All heavy lifting: `download_video` (yt-dlp), `run_transcription` (delegates to `elevenlabs_transcribe.py` / `audio_chunking_code.py` depending on `transcription_model` — never Gemini), `suggest_clips_from_result` (calls Gemini via `google-genai`, model `pipeline.GEMINI_MODEL_ID`, regardless of which transcription backend was used), `render_clip` (calls `npx remotion render`).
 - `web/config.py` — Persists API keys entered via the settings screen to `config.json` under `get_data_dir()` (repo root in dev, `%LOCALAPPDATA%\Kirinuki` on a packaged Windows install), and applies them to `os.environ` on top of `.env`.
 
+### クリップ提案プロンプト (`web/prompts/suggest_clips.md`)
+Geminiに投げるプロンプトはコード内ではなくこのMarkdownテンプレートにあり、`web/prompts.py`
+の `get_suggest_clips_prompt()` が `{{TRANSCRIPT_TEXT}}` / `{{CHAT_SECTION}}` /
+`{{EXTRA_PROMPT_SECTION}}` を差し込んで組み立てる。プロンプトを直すときはここを直す。
+
+中心にあるのは**訴求切り口カタログ（88種）** — 「視聴者がその1本を見る理由」の分類表で、
+「面白そうな場面を探す」のではなく「訴求が言語化できる場面だけを採る」ための共通言語として使う。
+番号1〜82がクリップの中身の切り口、83〜88はタイトル・サムネの**見せ方の型**（疑問形／結果先出し／
+対比／数字／強い一言／コメント引用）で役割が違うため、`appeals` に入れるのは1〜82だけ。
+1本につきメイン→サブ→補助の2〜3個を組み合わせさせ、セット全体でメイン切り口が偏らないようにする。
+
+`web/schemas.py` の `ClipSuggestion` で `appeals` を `title` より**先に**定義しているのは意図的で、
+Geminiの構造化出力はスキーマの定義順にフィールドを生成するため、先に訴求を言語化させると
+そのあとのタイトルと `reason` がその訴求に沿う。フィールドを足すときはこの順序を壊さないこと。
+
 ### Editing-material export (`web/premiere_export.py`)
 A second, independent output path alongside the Remotion renderer, for editors who want to do
 the captioning themselves in Premiere Pro (or any other NLE).
@@ -72,7 +87,10 @@ over the job's SSE stream, publishes the result in the state message's `export` 
 honours `/cancel` (status `exporting`).
 
 Not reproducible downstream, and therefore Remotion-only: karaoke active-word highlighting,
-`captionEffect` animations, the title bar text, and theme colours.
+`captionEffect` animations (enter animations, loop motion, the punch-in zoom and the caption
+sound effects — see 「字幕エフェクト」 below), the title bar text, and theme colours. The export's
+mp4 keeps the source audio only; no SFX are mixed in, which is what an editor re-cutting the
+clip wants.
 
 One thing to know before touching it: `compute_keep_intervals()` / `remap_captions_to_cuts()`
 in `pipeline.py` are **line-by-line ports of the `intervals` and `effectiveCaptions` useMemos
@@ -148,7 +166,11 @@ percent sliders (the box can land up to half a step off, ~0.5% of the frame).
 
 ### Remotion renderer (`remotion/`)
 - `remotion/src/ClipComposition.tsx` — The main Remotion composition. Accepts `ClipProps` (validated via Zod schema). Supports three layouts: horizontal (16:9), vertical crop mode, and vertical split mode (top panel + face-cam circle).
-- `remotion/src/CaptionPage.tsx` — Renders one TikTok-style caption page with karaoke-style active-word highlighting (white text, pink active token).
+- `remotion/src/CaptionPage.tsx` — Renders one TikTok-style caption page with karaoke-style active-word highlighting (white text, pink active token), plus the per-effect enter animation and loop motion (see 「字幕エフェクト」 below).
+- `remotion/src/captionStyles.ts` — Fonts, the `CAPTION_EFFECTS` list, and the two tables that
+  define the whole effect system: `EFFECT_MOTION` (enter animation / loop amplitude / punch-in /
+  sound effect, per effect) and `SFX` (per sound file: duration, gain, lead time).
+- `remotion/src/captionEnter.ts` — The spring-based enter animations themselves.
 - `remotion/src/Root.tsx` — Registers `ClipComposition` (used for CLI renders) and `StudioCompositions` (a stub in `src/`; see below for where the real per-clip compositions live).
 - `remotion/src/studioCompositions.tsx` — a **stub** (`() => null`) that only exists so
   `Root.tsx` compiles for CLI renders. The real per-clip compositions are generated into
@@ -160,6 +182,49 @@ percent sliders (the box can land up to half a step off, ~0.5% of the frame).
   one. It relies on the user bundle being evaluated *before* `@remotion/studio`'s preview entry
   — see `getStudioEntryPoints()` — so on a normal page load clearing the keys is enough; it
   reloads only when the file arrived via hot reload into an already-open tab.
+
+#### 字幕エフェクト（入りアニメ / ループ / パンチイン / 効果音）
+Every caption gets a per-effect motion profile, looked up from `EFFECT_MOTION` in
+`captionStyles.ts` by the caption's `effect` field (`""` — no effect — has an entry too, so
+plain captions still get a gentle pop-in). A profile has four parts:
+
+- **enter** — the animation played once as the page appears (`captionEnter.ts`; spring-based
+  pop / slam / drop / rise / fade / blurZoom / flicker). This is where the energy goes: short-form
+  editing convention is a strong accent on appearance, not continuous movement, because constant
+  motion causes visual fatigue and costs watch time.
+- **loop** — an amplitude multiplier (0–1) on the pre-existing per-effect shake in
+  `getTextTransform()`. It ramps up only *after* the enter animation finishes, so the two never
+  fight. `loop: 0` means the caption is still once it has landed.
+- **punchIn** — a digital zoom on the *video* (1.03–1.12) timed to the caption's appearance.
+  Applied to a wrapper inside each `overflow: hidden` video container, never to the container
+  itself — scaling the container would move the split-mode panels around.
+- **sfx** — a key into the `SFX` table, played from a `<Sequence>` of its own at the top level of
+  the composition (not inside the caption's Sequence, so a sound longer than its page isn't cut
+  off). `leadMs` lets a swell start *before* the caption so its peak lands on the text.
+
+Cooldowns in `buildPageMeta()` thin all of this out: 420 ms between any two SFX, 900 ms between
+repeats of the same one, 1400 ms between punch-ins. Without them a dense run of captions machine-guns
+the viewer. Comment-bubble pages are skipped for SFX — `CaptionPage` already plays its own pop.
+
+Three props gate the system, all set by `render_clip()` from the clip dict:
+`captionMotion` (enter + loop + punch-in), `captionSfx`, `captionSfxVolume`. The 「字幕エフェクト」
+switch in the UI turns off motion *and* sound; 「効果音」 turns off only the sound.
+
+The sound files in `remotion/public/sfx/` come from **効果音ラボ** (<https://soundeffect-lab.info/>)
+and are fetched by `tools/fetch_caption_sfx.py`, which also normalises them to −3 dBFS peak and
+prints the `durMs`/`gain` values to paste back into the `SFX` table. That site rate-limits direct
+links, so the script sends a `Referer` header — without it the download silently returns an HTML
+403 page instead of an mp3.
+
+**Licensing caveat**: 効果音ラボ is free for commercial use with no credit required, but its terms
+forbid bundling the files into an app as default assets *for distribution*. Using this repo on your
+own machine does not trigger that clause; shipping the `packaging/windows` installer to third
+parties would. If that becomes the plan, re-point `SOURCES` in the fetch script at a CC BY source
+such as OtoLogic (<https://otologic.jp/>, CC BY 4.0 — redistribution allowed with attribution;
+`remotion/public/Onoma-Pop04.mp3` already comes from there) and add a credits notice.
+
+The mp3s are committed, and both `pipeline.render_clip()` and `/api/studio/open` copy the directory
+into their scratch `--public-dir`.
 
 #### Why Studio runs on a throwaway copy (`remotion/studio-src/`)
 Remotion Studio is not read-only: editing a Sequence's **Offset**, an element's
@@ -223,7 +288,12 @@ Clips are JSON objects stored in `transcriptions/clips_*.json`. Key fields:
 - `vertical` / `verticalMode` — `"crop"` (full-height video cropped to portrait) or `"split"` (full-width video on top + zoomed face-cam circle below)
 - `cropX` — horizontal crop position 0–100%
 - `faceCamZoom`, `faceCamY` — for split mode face-cam
-- `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts)
+- `appeals` — 訴求切り口を「`13 フラグ回収`」形式でメイン→サブ→補助の順に2〜3個（提案プロンプト参照）。
+  クリップカードにタグ表示されるだけの注釈で、レンダリングには使わない。`reason` と同様、
+  `readGridClips()` は書き戻さないので `/render` に送られるクリップには含まれない
+- `cutIntervals` — list of `{startSec, endSec}` of segments to remove (silence cuts, jump cuts).
+  Geminiが指定した区間と無音カットが両方ある場合は `cut_silence_from_clips()` が
+  `_merge_cut_intervals()` でマージする（無音カットで上書きしない）
 - `captions` — list of `{text, startMs, endMs, effect?, isComment?}` relative to clip start. Not stored
   on the clip itself — `pipeline.make_captions()` rebuilds this fresh from the transcript segments
   (`*_full.json`) on every render. `effect` is auto-detected per segment

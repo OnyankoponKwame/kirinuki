@@ -4,9 +4,11 @@ import { THEMES, DEFAULT_THEME_KEY } from "./themes";
 import type { ClipTheme } from "./themes";
 import {
   CAPTION_FONT_PRESETS,
+  getEffectMotion,
   type CaptionEffect,
   type CaptionFontKey,
 } from "./captionStyles";
+import { ENTER_FRAMES, getEnterState } from "./captionEnter";
 
 const userIconSrc = staticFile("kkrn_icon_user_2.png");
 const popSound = staticFile("Onoma-Pop04.mp3");
@@ -313,7 +315,8 @@ export const CaptionPage: React.FC<{
   effect?: CaptionEffect;
   suffix?: string;
   isComment?: boolean;
-}> = ({ page, captionFontSize, captionFont, theme, effect, suffix, isComment }) => {
+  motionEnabled?: boolean;
+}> = ({ page, captionFontSize, captionFont, theme, effect, suffix, isComment, motionEnabled }) => {
   const t = theme ?? THEMES[DEFAULT_THEME_KEY];
   const frame = useCurrentFrame();
   const { fps, width, height } = useVideoConfig();
@@ -325,18 +328,33 @@ export const CaptionPage: React.FC<{
 
   const lastToken = page.tokens[page.tokens.length - 1];
   const pageDurationMs = lastToken ? lastToken.toMs - page.startMs : 1000;
-  const rampMs = 200;
   const effectType = effect ?? "";
-  const intensity = effect
-    ? (() => {
-        const raw = Math.min(
-          1,
-          currentTimeMs / rampMs,
-          (pageDurationMs - currentTimeMs) / rampMs,
-        );
-        return Math.max(0, (1 - Math.cos(raw * Math.PI)) / 2);
-      })()
-    : 0;
+  const motion = getEffectMotion(effectType);
+  const motionOn = motionEnabled !== false;
+
+  // 出現アニメーション（入り）。演出はここに集中させ、
+  // 表示中のループは入りが終わってから立ち上げる（同時に動かすと読みづらい）。
+  const enter = motionOn
+    ? getEnterState(motion.enter, motion.enterStrength, frame, fps)
+    : { transform: "", opacity: 1, filter: undefined, progress: 1 };
+
+  const enterEndMs = motionOn ? (ENTER_FRAMES[motion.enter] / fps) * 1000 : 0;
+  const rampMs = 200;
+  const loopAmount = motionOn ? motion.loop : 0;
+  const intensity =
+    loopAmount > 0
+      ? (() => {
+          const raw = Math.max(
+            0,
+            Math.min(
+              1,
+              (currentTimeMs - enterEndMs) / rampMs,
+              (pageDurationMs - currentTimeMs) / rampMs,
+            ),
+          );
+          return ((1 - Math.cos(raw * Math.PI)) / 2) * loopAmount;
+        })()
+      : 0;
 
   const effectStyle = EFFECT_ACTIVE[effectType];
   const textTransform = getTextTransform(effectType, absoluteTimeMs, intensity);
@@ -375,10 +393,23 @@ export const CaptionPage: React.FC<{
       )
       .filter(token => token.text.length > 0);
 
+    // 吹き出しは効果音（ポン）と同時に弾んで出す。エフェクト種別によらず常にポップイン。
+    const bubbleEnter = motionOn
+      ? getEnterState("pop", 0.9, frame, fps)
+      : { transform: "", opacity: 1, filter: undefined, progress: 1 };
+
     return (
       <AbsoluteFill style={posStyle as React.CSSProperties}>
         <Audio src={popSound} />
-        <div style={{ position: "relative", maxWidth: isVertical ? "88%" : "82%", paddingTop: outerPad, paddingLeft: outerPad }}>
+        <div style={{
+          position: "relative",
+          maxWidth: isVertical ? "88%" : "82%",
+          paddingTop: outerPad,
+          paddingLeft: outerPad,
+          transform: bubbleEnter.transform || undefined,
+          transformOrigin: "center center",
+          opacity: bubbleEnter.opacity,
+        }}>
           <Img
             src={userIconSrc}
             style={{
@@ -434,11 +465,11 @@ export const CaptionPage: React.FC<{
     );
   }
 
-  const baseTextColor =
-    effectStyle && intensity > 0
-      ? effectStyle.textColor
-      : t.captionTextColor;
+  const baseTextColor = effectStyle ? effectStyle.textColor : t.captionTextColor;
   const baseOpacity = effectStyle?.opacity ?? 1;
+  // 単語が発話タイミングどおりに出てくる見せ方（news など）。
+  // 未発話の単語は透明にするだけなので、行の折り返し位置は最初から動かない。
+  const revealTokens = motionOn && motion.revealTokens === true;
 
   return (
     <AbsoluteFill style={posStyle as React.CSSProperties}>
@@ -452,65 +483,86 @@ export const CaptionPage: React.FC<{
           willChange: textTransform ? "transform" : undefined,
         }}
       >
-        <span
+        {/* 入りアニメーションは中心基準、ループの揺れは下端基準と原点が違うので層を分ける */}
+        <div
           style={{
-            fontFamily: fontPreset.family,
-            fontSize,
-            fontWeight: fontPreset.weight,
-            color: baseTextColor,
-            opacity: baseOpacity,
-            textShadow: TEXT_SHADOW,
-            whiteSpace: "pre-wrap",
-            lineHeight: fontPreset.lineHeight,
+            transform: enter.transform || undefined,
+            transformOrigin: "center center",
+            opacity: enter.opacity,
+            filter: enter.filter,
+            willChange: enter.progress < 1 ? "transform, opacity" : undefined,
           }}
         >
-          {page.tokens.map((token) => {
-            const isActive =
-              token.fromMs <= absoluteTimeMs && token.toMs > absoluteTimeMs;
-            if (!isActive) return <span key={token.fromMs} style={{ color: baseTextColor }}>{token.text}</span>;
+          <span
+            style={{
+              fontFamily: fontPreset.family,
+              fontSize,
+              fontWeight: fontPreset.weight,
+              color: baseTextColor,
+              opacity: baseOpacity,
+              textShadow: TEXT_SHADOW,
+              whiteSpace: "pre-wrap",
+              lineHeight: fontPreset.lineHeight,
+            }}
+          >
+            {page.tokens.map((token) => {
+              const isActive =
+                token.fromMs <= absoluteTimeMs && token.toMs > absoluteTimeMs;
+              if (!isActive) {
+                const hidden = revealTokens && token.fromMs > absoluteTimeMs;
+                return (
+                  <span
+                    key={token.fromMs}
+                    style={{ color: baseTextColor, opacity: hidden ? 0 : undefined }}
+                  >
+                    {token.text}
+                  </span>
+                );
+              }
 
-            const progress = (absoluteTimeMs - token.fromMs) / Math.max(1, token.toMs - token.fromMs);
-            const activeTransform = getActiveTokenTransform(effectType, progress);
-            const activeStyle: React.CSSProperties = {
-              color: effectStyle ? effectStyle.color : t.captionActiveColor,
-              textShadow: effectStyle ? effectStyle.shadow : makeActiveShadow(t),
-              display: activeTransform || effectStyle?.block ? "inline-block" : undefined,
-              transform: activeTransform,
-              transformOrigin: "center bottom",
-              willChange: activeTransform ? "transform" : undefined,
-            };
+              const progress = (absoluteTimeMs - token.fromMs) / Math.max(1, token.toMs - token.fromMs);
+              const activeTransform = motionOn ? getActiveTokenTransform(effectType, progress) : undefined;
+              const activeStyle: React.CSSProperties = {
+                color: effectStyle ? effectStyle.color : t.captionActiveColor,
+                textShadow: effectStyle ? effectStyle.shadow : makeActiveShadow(t),
+                display: activeTransform || effectStyle?.block ? "inline-block" : undefined,
+                transform: activeTransform,
+                transformOrigin: "center bottom",
+                willChange: activeTransform ? "transform" : undefined,
+              };
 
-            if (effectStyle?.block) {
-              activeStyle.background = effectStyle.background;
-              activeStyle.border = effectStyle.border;
-              activeStyle.borderRadius = effectStyle.borderRadius;
-              activeStyle.padding = effectStyle.padding;
-              activeStyle.boxDecorationBreak = "clone";
-              activeStyle.WebkitBoxDecorationBreak = "clone";
-            }
+              if (effectStyle?.block) {
+                activeStyle.background = effectStyle.background;
+                activeStyle.border = effectStyle.border;
+                activeStyle.borderRadius = effectStyle.borderRadius;
+                activeStyle.padding = effectStyle.padding;
+                activeStyle.boxDecorationBreak = "clone";
+                activeStyle.WebkitBoxDecorationBreak = "clone";
+              }
 
-            return (
-              <span key={token.fromMs} style={activeStyle}>
-                {token.text}
-              </span>
-            );
-          })}
-        </span>
-        {suffix && (
-          <div style={{
-            fontSize: Math.round(fontSize * 0.72),
-            fontFamily: fontPreset.family,
-            fontWeight: fontPreset.weight,
-            color: effectStyle?.color ?? baseTextColor,
-            textShadow: effectStyle?.shadow ?? TEXT_SHADOW,
-            opacity: 0.88,
-            lineHeight: 1.3,
-            marginTop: "0.12em",
-            textAlign: "center",
-          }}>
-            {suffix}
-          </div>
-        )}
+              return (
+                <span key={token.fromMs} style={activeStyle}>
+                  {token.text}
+                </span>
+              );
+            })}
+          </span>
+          {suffix && (
+            <div style={{
+              fontSize: Math.round(fontSize * 0.72),
+              fontFamily: fontPreset.family,
+              fontWeight: fontPreset.weight,
+              color: effectStyle?.color ?? baseTextColor,
+              textShadow: effectStyle?.shadow ?? TEXT_SHADOW,
+              opacity: 0.88,
+              lineHeight: 1.3,
+              marginTop: "0.12em",
+              textAlign: "center",
+            }}>
+              {suffix}
+            </div>
+          )}
+        </div>
       </div>
     </AbsoluteFill>
   );

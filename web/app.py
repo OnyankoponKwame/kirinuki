@@ -1253,6 +1253,9 @@ def _generate_studio_root(
             "title": clip.get("title", ""),
             "captions": captions,
             "srcAspect": clip.get("srcAspect", src_aspect),
+            "captionMotion": effects_enabled,
+            "captionSfx": effects_enabled and bool(clip.get("captionSfxEnabled", True)),
+            "captionSfxVolume": max(0.0, min(1.0, float(clip.get("captionSfxVolume", 0.7)))),
         }
         if effects_enabled and clip.get("captionEffect") in _pl.CAPTION_EFFECTS:
             props["captionEffect"] = clip["captionEffect"]
@@ -1370,6 +1373,10 @@ async def open_studio(req: StudioReq):
             src = REMOTION_DIR / "public" / asset_name
             if src.exists():
                 shutil.copy2(src, pub_tmp / asset_name)
+        # 字幕エフェクト連動の効果音（tools/gen_caption_sfx.py が生成する）
+        sfx_src = REMOTION_DIR / "public" / "sfx"
+        if sfx_src.is_dir():
+            shutil.copytree(sfx_src, pub_tmp / "sfx", dirs_exist_ok=True)
 
         # 前回のプロセスをここまでで確実に止めていても、--reload によるワーカー再起動や
         # 親プロセスの強制終了（Task Manager など）を挟んだ場合は npx の孫プロセスだけが

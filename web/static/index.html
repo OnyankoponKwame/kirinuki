@@ -169,6 +169,14 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .clip-times span { color: var(--muted); font-size: 11px; }
 .dur-tag { background: var(--surface); border-radius: 6px; color: var(--muted); font-size: 11px; padding: 2px 6px; }
 
+/* 訴求切り口タグ（Geminiが選んだ「この動画を見る理由」。先頭＝メイン切り口） */
+.clip-appeals { display: flex; flex-wrap: wrap; gap: 4px; }
+.clip-appeal-tag {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-size: 10px; padding: 1px 6px; white-space: nowrap;
+}
+.clip-appeal-tag.main { border-color: var(--accent); color: var(--text); font-weight: 600; }
+
 .clip-reason { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .clip-foot { display: flex; justify-content: flex-end; }
 
@@ -896,11 +904,25 @@ a.btn-dl, button.btn-dl { background: var(--blue); color: var(--text); border-ra
           </div>
           <div>
             <div class="gs-field-label"><span>字幕エフェクト</span></div>
-            <label class="switch" for="global-caption-effects">
-              <input type="checkbox" id="global-caption-effects" checked>
+            <label class="switch" for="global-caption-effects" title="字幕の出現アニメーション（ポップイン等）、感情に応じた色・揺れ、強調時の映像パンチインをまとめて有効にします">
+              <input type="checkbox" id="global-caption-effects" checked onchange="syncCaptionSfxUI()">
               <span class="switch-track"></span>
               <span class="switch-label">字幕エフェクトをつける</span>
             </label>
+          </div>
+          <div>
+            <div class="gs-field-label"><span>効果音</span></div>
+            <label class="switch" for="global-caption-sfx" title="字幕の出現と同時にエフェクトに対応した効果音（ドン／ポン／キラッ等）を鳴らします。短時間に鳴りすぎないよう自動で間引きます">
+              <input type="checkbox" id="global-caption-sfx" checked onchange="syncCaptionSfxUI()">
+              <span class="switch-track"></span>
+              <span class="switch-label">効果音をつける</span>
+            </label>
+            <div id="global-caption-sfx-volume-row" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+              <span style="font-size:11px;color:var(--muted);white-space:nowrap">音量</span>
+              <input type="range" id="global-caption-sfx-volume" min="0" max="100" step="5" value="70" style="flex:1"
+                     oninput="document.getElementById('global-caption-sfx-volume-val').textContent = this.value + '%'">
+              <span id="global-caption-sfx-volume-val" style="font-size:11px;color:var(--muted);min-width:36px;text-align:right">70%</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1831,6 +1853,26 @@ function initGlobalClipSettings(firstClip) {
 
   document.getElementById('global-caption-effects').checked =
     (firstClip && firstClip.captionEffectsEnabled) ?? true;
+  document.getElementById('global-caption-sfx').checked =
+    (firstClip && firstClip.captionSfxEnabled) ?? true;
+  const vol = (firstClip && firstClip.captionSfxVolume);
+  document.getElementById('global-caption-sfx-volume').value =
+    Math.round((vol != null ? vol : 0.7) * 100);
+  syncCaptionSfxUI();
+}
+
+// 効果音は字幕エフェクトの一部なので、エフェクトを切ったら効果音の操作も無効化する
+function syncCaptionSfxUI() {
+  const effectsOn = document.getElementById('global-caption-effects').checked;
+  const sfx = document.getElementById('global-caption-sfx');
+  sfx.disabled = !effectsOn;
+  sfx.closest('.switch').style.opacity = effectsOn ? '' : '0.45';
+  const row = document.getElementById('global-caption-sfx-volume-row');
+  const volEnabled = effectsOn && sfx.checked;
+  row.style.opacity = volEnabled ? '' : '0.45';
+  document.getElementById('global-caption-sfx-volume').disabled = !volEnabled;
+  document.getElementById('global-caption-sfx-volume-val').textContent =
+    document.getElementById('global-caption-sfx-volume').value + '%';
 }
 
 function globalIsVertical() {
@@ -1893,6 +1935,10 @@ function buildClipCard(clip, idx) {
       <input type="text" class="t-end" value="${secToHMS(clip.end_sec)}">
       <span class="dur-tag">${durStr(0, playedDur)}${clip.cutIntervals?.length ? ' ✂' : ''}</span>
     </div>
+    ${(clip.appeals || []).length ? `
+    <div class="clip-appeals">
+      ${clip.appeals.map((a, i) => `<span class="clip-appeal-tag${i === 0 ? ' main' : ''}">${escHtml(String(a))}</span>`).join('')}
+    </div>` : ''}
     <div class="clip-reason">${escHtml(clip.reason || '')}</div>
     <div class="ki-editor" style="margin-top:6px;padding:6px 0;border-top:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -2667,6 +2713,9 @@ function readGridClips() {
   const globalSrcAspect = phaseOut.srcAspect || null;
   const globalTheme = document.getElementById('global-theme').value;
   const globalCaptionEffectsEnabled = document.getElementById('global-caption-effects').checked;
+  const globalCaptionSfxEnabled = document.getElementById('global-caption-sfx').checked;
+  const globalCaptionSfxVolume =
+    parseInt(document.getElementById('global-caption-sfx-volume').value, 10) / 100;
   return Array.from(document.querySelectorAll('#ph4-clips-grid .clip-card')).map(c => {
     const cutIntervals = JSON.parse(c.dataset.cutIntervals || 'null');
     const cardSrcAspect = parseFloat(c.dataset.srcAspect) || globalSrcAspect;
@@ -2678,6 +2727,8 @@ function readGridClips() {
       verticalMode: (c.querySelector('.clip-vmode:checked') || {}).value || 'split',
       captionEffect: globalCaptionEffectsEnabled ? (c.dataset.captionEffect || undefined) : undefined,
       captionEffectsEnabled: globalCaptionEffectsEnabled,
+      captionSfxEnabled: globalCaptionSfxEnabled,
+      captionSfxVolume: globalCaptionSfxVolume,
       cropX: parseInt(c.querySelector('.clip-crop-x').value, 10),
       faceCamZoom: parseFloat(c.querySelector('.clip-face-zoom').value),
       faceCamY: parseInt(c.querySelector('.clip-face-y').value, 10),
